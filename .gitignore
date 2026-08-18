@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Uploads (receipts etc.)
+server/uploads/*.jpg
+server/uploads/*.jpeg
+server/uploads/*.png
+server/uploads/*.webp
+server/uploads/*.pdf
+server/uploads/receipts/
+!server/uploads/receipts/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Misc
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+coverage/
