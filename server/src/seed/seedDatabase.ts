@@ -199,6 +199,47 @@ const SEED_DATA: Array<{ category: string; sortOrder: number; products: SeedProd
   },
 ];
 
+/**
+ * Ensures the default shop categories exist and are active.
+ * Creates any missing category and re-activates soft-deleted (isActive: false)
+ * default categories so they appear in the shop filter and admin dropdowns.
+ * This function never seeds products.
+ */
+async function ensureDefaultCategories(): Promise<void> {
+  for (const group of SEED_DATA) {
+    const existing = await Category.findOne({ name: group.category }).lean();
+    if (!existing) {
+      await Category.create({
+        name: group.category,
+        slug: slugify(group.category),
+        sortOrder: group.sortOrder,
+        isActive: true,
+      });
+      console.log(`[seed] created category → ${group.category}`);
+    } else if (existing.isActive === false) {
+      // Soft-deleted (deactivated in the admin Categories page). Restore the default
+      // so the product form's Category dropdown is populated again.
+      await Category.updateOne(
+        { _id: existing._id },
+        {
+          isActive: true,
+          slug: slugify(group.category),
+          sortOrder: group.sortOrder,
+        }
+      );
+      console.log(`[seed] re-activated category → ${group.category}`);
+    }
+  }
+  const activeCount = await Category.countDocuments({ isActive: true });
+  console.log(`[seed] active categories → ${activeCount}`);
+}
+
+/** Seeds only the default shop categories (no products). Safe to run anytime — never duplicates. */
+export async function seedCategories(): Promise<void> {
+  await connectDB();
+  await ensureDefaultCategories();
+}
+
 export async function runSeedDatabase() {
   await connectDB();
   await ensurePaymentSettings();
@@ -231,16 +272,15 @@ export async function runSeedDatabase() {
     { upsert: true }
   );
 
+  // Ensure default shop categories exist (creates/re-activates them only — no products).
+  await ensureDefaultCategories();
+
   for (const group of SEED_DATA) {
     let category = await Category.findOne({ name: group.category }).lean();
     if (!category) {
-      category = await Category.create({
-        name: group.category,
-        slug: slugify(group.category),
-        sortOrder: group.sortOrder,
-      });
-      console.log(`[seed] created category → ${group.category}`);
+      category = await Category.findOne({ slug: slugify(group.category) }).lean();
     }
+    if (!category) continue;
 
     for (const p of group.products) {
       const exists = await Product.findOne({ name: p.name }).lean();

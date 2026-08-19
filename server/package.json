@@ -9,6 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "seed": "tsx src/seed/seedCli.ts",
+    "seed:categories": "tsx src/seed/seedCli.ts --categories",
     "test:flow": "tsx src/scripts/testFlow.ts",
     "typecheck": "tsc --noEmit"
   },
