@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  listProducts, getProduct,
+  listProducts, getProduct, getProductImageUrl,
   adminListProducts, createProduct, updateProduct,
   deleteProduct, hardDeleteProduct,
   uploadProductImages, deleteProductImage, setMainImage,
@@ -12,32 +12,18 @@ const router = Router();
 
 // Public
 router.get('/', listProducts);
+router.get('/admin/list', protect, adminListProducts);    // must be before /:id
+router.get('/:id/image-url', getProductImageUrl);        // signed image URL
 router.get('/:id', getProduct);
 
-// Admin — any admin role
-router.get('/admin/list', protect, adminListProducts);
-router.post(
-  '/admin',
-  protect,
-  productImageUpload.array('images', 10),
-  createProduct
-);
-router.put(
-  '/admin/:id',
-  protect,
-  productImageUpload.array('images', 10),
-  updateProduct
-);
+// Admin — product CRUD
+router.post('/admin', protect, productImageUpload.array('images', 10), createProduct);
+router.put('/admin/:id', protect, productImageUpload.array('images', 10), updateProduct);
 router.delete('/admin/:id', protect, deleteProduct);
 router.delete('/admin/:id/hard', protect, authorize('superadmin'), hardDeleteProduct);
 
-// Image management
-router.post(
-  '/admin/:id/images',
-  protect,
-  productImageUpload.array('images', 10),
-  uploadProductImages
-);
+// Admin — image management
+router.post('/admin/:id/images', protect, productImageUpload.array('images', 10), uploadProductImages);
 router.delete('/admin/:id/images/:imageIndex', protect, deleteProductImage);
 router.put('/admin/:id/main-image', protect, setMainImage);
 

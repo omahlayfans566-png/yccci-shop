@@ -121,9 +121,8 @@ export function ProductDetailsPage() {
                       key={img}
                       type="button"
                       onClick={() => setActiveImage(i)}
-                      className={`shrink-0 overflow-hidden rounded-lg border-2 ${
-                        i === activeImage ? 'border-brand-500' : 'border-transparent'
-                      }`}
+                      className={`shrink-0 overflow-hidden rounded-lg border-2 ${i === activeImage ? 'border-brand-500' : 'border-transparent'
+                        }`}
                       aria-label={`View image ${i + 1}`}
                     >
                       <img src={resolveMediaUrl(img)} alt="" loading="lazy" className="h-20 w-20 object-cover" />
@@ -153,11 +152,10 @@ export function ProductDetailsPage() {
                         key={s}
                         type="button"
                         onClick={() => setSize(s)}
-                        className={`min-h-11 min-w-12 rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
-                          size === s
-                            ? 'border-brand-600 bg-brand-700 text-white'
-                            : 'border-slate-300 bg-white text-slate-700 hover:border-brand-400'
-                        }`}
+                        className={`min-h-11 min-w-12 rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${size === s
+                          ? 'border-brand-600 bg-brand-700 text-white'
+                          : 'border-slate-300 bg-white text-slate-700 hover:border-brand-400'
+                          }`}
                         aria-pressed={size === s}
                       >
                         {s}
@@ -176,11 +174,10 @@ export function ProductDetailsPage() {
                         key={c.name}
                         type="button"
                         onClick={() => setColour(c.name)}
-                        className={`flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-                          colour === c.name
-                            ? 'border-brand-600 bg-brand-50 text-brand-800'
-                            : 'border-slate-300 bg-white text-slate-700 hover:border-brand-400'
-                        }`}
+                        className={`flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${colour === c.name
+                          ? 'border-brand-600 bg-brand-50 text-brand-800'
+                          : 'border-slate-300 bg-white text-slate-700 hover:border-brand-400'
+                          }`}
                         aria-pressed={colour === c.name}
                       >
                         <span

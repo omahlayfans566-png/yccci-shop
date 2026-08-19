@@ -14,6 +14,7 @@ export const ProductCard = memo(function ProductCard({ product, onAdd }: Props) 
   const disabled = availability !== 'AVAILABLE';
   const categoryName =
     typeof product.category === 'object' && product.category ? product.category.name : '';
+  const imgSrc = resolveMediaUrl(product.mainImage);
 
   return (
     <article className="card group flex flex-col overflow-hidden transition-shadow hover:shadow-md">
@@ -22,13 +23,23 @@ export const ProductCard = memo(function ProductCard({ product, onAdd }: Props) 
         className="relative block aspect-square overflow-hidden bg-slate-100"
         aria-label={`View ${product.name}`}
       >
-        <img
-          src={resolveMediaUrl(product.mainImage)}
-          alt={product.name}
-          loading="lazy"
-          decoding="async"
-          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-        />
+        {imgSrc ? (
+          <img
+            src={imgSrc}
+            alt={product.name}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-slate-100">
+            <svg className="h-12 w-12 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="m3 9 4-4 4 4 4-6 6 9" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+            </svg>
+          </div>
+        )}
         <span className="absolute left-3 top-3">
           <AvailabilityBadge status={availability} />
         </span>

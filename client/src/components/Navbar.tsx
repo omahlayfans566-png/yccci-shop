@@ -16,7 +16,7 @@ export function Navbar() {
           <Link to="/" className="flex items-center gap-2.5" aria-label="Shop home">
             <ShopLogo className="h-9 w-9 sm:h-10 sm:w-10" />
             <span className="text-xl font-extrabold tracking-tight text-brand-900 sm:text-2xl">
-              Shop
+              YCCCI Religious Article Shop
             </span>
           </Link>
 
