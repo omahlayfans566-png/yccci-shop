@@ -35,7 +35,7 @@ async function main() {
   await connectDB();
   await ensurePaymentSettings();
   await ensureInitialAdmin();
-  await runSeedDatabase();
+  await runSeedDatabase(); // ensures categories + admin only — never seeds products
 
   // Start the API in-process on an ephemeral port.
   const app = createApp();
@@ -79,7 +79,7 @@ async function main() {
     const pay = await fetch(`${base}/api/payment-settings/public`).then(j);
     report('payment settings endpoint', pay.success && !!pay.paymentSettings.accountNumber);
 
-        // 7) Place order (JSON, no receipt) — initial payment status PENDING
+    // 7) Place order (JSON, no receipt) — initial payment status PENDING
     const orderPayload = {
       customer: {
         fullName: 'Tunde Bakare',

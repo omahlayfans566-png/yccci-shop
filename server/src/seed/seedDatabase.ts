@@ -2,10 +2,9 @@ import bcrypt from 'bcryptjs';
 import { connectDB } from '../config/db';
 import { Admin } from '../models/Admin';
 import { Category } from '../models/Category';
-import { Product } from '../models/Product';
 import { PaymentSettings, ensurePaymentSettings } from '../models/PaymentSettings';
 import { env } from '../config/env';
-import { writeProductImage, slugify } from './imageUtils';
+import { slugify } from './imageUtils';
 
 interface SeedProduct {
   name: string;
@@ -275,28 +274,12 @@ export async function runSeedDatabase() {
   // Ensure default shop categories exist (creates/re-activates them only — no products).
   await ensureDefaultCategories();
 
-  for (const group of SEED_DATA) {
-    let category = await Category.findOne({ name: group.category }).lean();
-    if (!category) {
-      category = await Category.findOne({ slug: slugify(group.category) }).lean();
-    }
-    if (!category) continue;
-
-    for (const p of group.products) {
-      const exists = await Product.findOne({ name: p.name }).lean();
-      if (exists) continue;
-
-      const images = p.colours.map((c) => writeProductImage(p.name, c.hex, `${slugify(p.name)}-${slugify(c.name)}`));
-      await Product.create({
-        ...p,
-        category: category._id,
-        mainImage: images[0],
-        images,
-        description: p.description + '\n\nFree delivery within Lagos. Other states: dispatch in 24–48 hours after payment confirmation.',
-      });
-      console.log(`[seed] created product → ${p.name}`);
-    }
-  }
+  // ── NO PRODUCT SEEDING ──────────────────────────────────────────────────────
+  // Products are created ONLY by authenticated admins through the Admin Panel.
+  // This function must NEVER insert, restore, or recreate products automatically.
+  // Doing so would cause deleted products to reappear after server restart or
+  // after running this script.
+  // ────────────────────────────────────────────────────────────────────────────
 
   console.log('[seed] Done. Start the API with `npm run dev` and open the client.');
 }
