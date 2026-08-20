@@ -25,6 +25,8 @@ const ProductSchema = new Schema(
     category: { type: Schema.Types.ObjectId, ref: 'Category', required: true, index: true },
     mainImage: { type: String, default: '' },
     images: { type: [String], default: [] },
+    /** Cloudinary public_ids corresponding to each image in `images[]`. Used for deletion. */
+    imagePublicIds: { type: [String], default: [] },
     sizes: { type: [String], default: [] },
     colours: { type: [ColourSchema], default: [] },
     /** Quantity in stock. 0 forces SOLD_OUT at the API layer unless status = COMING_SOON. */

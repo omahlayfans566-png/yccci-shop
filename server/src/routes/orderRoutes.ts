@@ -10,15 +10,8 @@ import { validateResult, orderRules } from '../middleware/validate';
 
 const router = Router();
 
-// Public
-router.post(
-  '/',
-  receiptUpload.single('receipt'),
-  parseOrderBody,
-  orderRules,
-  validateResult,
-  createOrder
-);
+// Public — place an order (multipart with optional receipt)
+router.post('/', receiptUpload.single('receipt'), parseOrderBody, orderRules, validateResult, createOrder);
 router.get('/number/:orderNumber', getOrderByNumber);
 
 // Admin

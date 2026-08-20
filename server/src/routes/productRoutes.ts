@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  listProducts, getProduct, getProductImageUrl,
+  listProducts, getProduct,
   adminListProducts, createProduct, updateProduct,
   deleteProduct, hardDeleteProduct,
   uploadProductImages, deleteProductImage, setMainImage,
@@ -12,11 +12,10 @@ const router = Router();
 
 // Public
 router.get('/', listProducts);
-router.get('/admin/list', protect, adminListProducts);    // must be before /:id
-router.get('/:id/image-url', getProductImageUrl);        // signed image URL
+router.get('/admin/list', protect, adminListProducts);
 router.get('/:id', getProduct);
 
-// Admin — product CRUD
+// Admin — CRUD
 router.post('/admin', protect, productImageUpload.array('images', 10), createProduct);
 router.put('/admin/:id', protect, productImageUpload.array('images', 10), updateProduct);
 router.delete('/admin/:id', protect, deleteProduct);

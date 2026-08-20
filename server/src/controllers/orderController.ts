@@ -5,15 +5,22 @@ import { Product } from '../models/Product';
 import { PaymentSettings } from '../models/PaymentSettings';
 import { asyncHandler, HttpError } from '../middleware/error';
 import { generateOrderNumber } from '../utils/orderNumber';
-import { uploadToB2, isB2Configured } from '../config/storage';
+import {
+  uploadReceiptToCloudinary,
+  deleteFromCloudinary,
+  getPrivateCloudinaryUrl,
+  isCloudinaryConfigured,
+} from '../config/cloudinary';
 
+/**
+ * Multipart form data delivers customer + items as JSON strings.
+ * Parse them back to objects before the validator runs.
+ */
 export function parseOrderBody(req: Request, _res: Response, next: NextFunction): void {
   if (req.is('multipart/form-data')) {
     const parse = (v: unknown): unknown => {
-      if (v === undefined || v === null || v === '') return undefined;
-      if (typeof v === 'string') {
-        try { return JSON.parse(v); } catch { return v; }
-      }
+      if (v == null || v === '') return undefined;
+      if (typeof v === 'string') { try { return JSON.parse(v); } catch { return v; } }
       return v;
     };
     if (req.body) {
@@ -25,30 +32,17 @@ export function parseOrderBody(req: Request, _res: Response, next: NextFunction)
   next();
 }
 
-async function handleReceiptUpload(
+/** Upload a payment receipt buffer to Cloudinary (authenticated/private). */
+async function uploadReceipt(
   file: Express.Multer.File,
   orderId: string
-): Promise<{ url: string; key: string }> {
-  const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-  const key = `receipts/order-${orderId}/receipt-${Date.now()}${ext}`;
-
-  if (isB2Configured()) {
-    const url = await uploadToB2({
-      key,
-      buffer: file.buffer,
-      contentType: file.mimetype,
-      contentLength: file.size,
-    });
-    return { url, key };
-  }
-
-  // Local fallback (dev only)
-  const fsp = await import('node:fs/promises');
-  const localPath = `uploads/receipts/receipt-${orderId}-${Date.now()}${ext}`;
-  await fsp.writeFile(localPath, file.buffer);
-  return { url: `/${localPath}`, key: localPath };
+): Promise<{ url: string; publicId: string; resourceType: string }> {
+  const result = await uploadReceiptToCloudinary(file.buffer, orderId, file.mimetype);
+  const isImage = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype);
+  return { url: result.secureUrl, publicId: result.publicId, resourceType: isImage ? 'image' : 'raw' };
 }
 
+/* ── Create Order ────────────────────────────────────────── */
 export const createOrder = asyncHandler(async (req, res) => {
   const uploadedFile = req.file as Express.Multer.File | undefined;
   const customer: Record<string, string> = req.body.customer || {};
@@ -56,16 +50,16 @@ export const createOrder = asyncHandler(async (req, res) => {
   const paymentRef: string = req.body.paymentRef || '';
 
   if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) {
-    throw new HttpError('Your cart is empty. Add at least one product.', 400);
+    throw new HttpError('Your cart is empty.', 400);
   }
 
+  // Validate every item against the live catalogue
   const enriched: Array<{ product: Record<string, unknown>; qty: number; size: string; colour: string }> = [];
-
   for (const rawItem of itemsRaw) {
     const raw = rawItem as Record<string, unknown>;
     if (!raw?.productId) throw new HttpError('Invalid product in cart', 400);
     const product = await Product.findById(raw.productId).lean() as Record<string, unknown> | null;
-    if (!product || !product.isActive) throw new HttpError(`Product "${raw.name || 'unknown'}" no longer exists.`, 400);
+    if (!product || !product.isActive) throw new HttpError(`Product "${raw.name ?? 'unknown'}" no longer exists.`, 400);
 
     const qty = Number(raw.quantity);
     if (!Number.isInteger(qty) || qty < 1 || qty > 99) throw new HttpError(`Invalid quantity for "${product.name}".`, 400);
@@ -75,24 +69,22 @@ export const createOrder = asyncHandler(async (req, res) => {
     const effectiveStatus = stock > 0 ? status : status === 'AVAILABLE' ? 'SOLD_OUT' : status;
     if (effectiveStatus === 'SOLD_OUT') throw new HttpError(`"${product.name}" is sold out.`, 409);
     if (effectiveStatus === 'COMING_SOON') throw new HttpError(`"${product.name}" is coming soon.`, 409);
-    if (stock > 0 && stock < qty) throw new HttpError(`Only ${stock} of "${product.name}" are available.`, 409);
+    if (stock > 0 && stock < qty) throw new HttpError(`Only ${stock} of "${product.name}" available.`, 409);
 
-    const size = String(raw.size || '').trim();
+    const size = String(raw.size ?? '').trim();
     const sizes = product.sizes as string[];
     if (sizes.length > 0 && !sizes.includes(size)) throw new HttpError(`Choose a valid size for "${product.name}".`, 400);
 
-    const colour = String(raw.colour || '').trim();
+    const colour = String(raw.colour ?? '').trim();
     const colours = product.colours as Array<{ name: string }>;
-    if (colours.length > 0) {
-      const known = colours.some((c) => c.name.toLowerCase() === colour.toLowerCase());
-      if (!known) throw new HttpError(`Choose a valid colour for "${product.name}".`, 400);
+    if (colours.length > 0 && !colours.some((c) => c.name.toLowerCase() === colour.toLowerCase())) {
+      throw new HttpError(`Choose a valid colour for "${product.name}".`, 400);
     }
-
     enriched.push({ product, qty, size, colour });
   }
 
   const orderNumber = await generateOrderNumber();
-  const paymentSettings = await PaymentSettings.findOne({ key: 'default' }).lean();
+  const paymentSettings = await PaymentSettings.findOne({ key: 'default' }).lean() as Record<string, unknown> | null;
 
   const items = enriched.map(({ product, qty, size, colour }) => ({
     product: product._id,
@@ -103,19 +95,18 @@ export const createOrder = asyncHandler(async (req, res) => {
     size,
     colour,
   }));
-
-  const subtotal = items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+  const subtotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
 
   const order = await Order.create({
     orderNumber,
     customer: {
-      fullName: customer.fullName || '',
-      phone: customer.phone || '',
-      email: customer.email || '',
-      address: customer.address || '',
-      state: customer.state || '',
-      city: customer.city || '',
-      note: customer.note || '',
+      fullName: customer.fullName ?? '',
+      phone: customer.phone ?? '',
+      email: customer.email ?? '',
+      address: customer.address ?? '',
+      state: customer.state ?? '',
+      city: customer.city ?? '',
+      note: customer.note ?? '',
     },
     items,
     subtotal,
@@ -124,29 +115,45 @@ export const createOrder = asyncHandler(async (req, res) => {
       status: uploadedFile || paymentRef ? 'PROOF_SUBMITTED' : 'PENDING',
       reference: paymentRef,
       receipt: '',
-      receiptKey: '',
-      receiptBucket: '',
-      receiptOriginalName: uploadedFile?.originalname || '',
+      receiptPublicId: '',
+      receiptResourceType: 'image',
+      receiptOriginalName: uploadedFile?.originalname ?? '',
       receiptUploadedAt: uploadedFile ? new Date() : undefined,
-      bankName: (paymentSettings as Record<string, unknown>)?.bankName || '',
-      accountName: (paymentSettings as Record<string, unknown>)?.accountName || '',
-      accountNumber: (paymentSettings as Record<string, unknown>)?.accountNumber || '',
+      bankName: paymentSettings?.bankName ?? '',
+      accountName: paymentSettings?.accountName ?? '',
+      accountNumber: paymentSettings?.accountNumber ?? '',
     },
     orderStatus: uploadedFile || paymentRef ? 'PAYMENT_SUBMITTED' : 'PENDING',
   });
 
-  if (uploadedFile) {
+  // Upload receipt to Cloudinary (private) after order is created
+  if (uploadedFile && isCloudinaryConfigured()) {
     try {
-      const { url, key } = await handleReceiptUpload(uploadedFile, order._id.toString());
+      const { url, publicId, resourceType } = await uploadReceipt(uploadedFile, order._id.toString());
       await Order.updateOne({ _id: order._id }, {
         'payment.receipt': url,
-        'payment.receiptKey': key,
+        'payment.receiptPublicId': publicId,
+        'payment.receiptResourceType': resourceType,
       });
     } catch (err) {
-      console.error('[order] receipt upload failed:', err);
+      console.error('[order] receipt upload failed:', err instanceof Error ? err.message : err);
+    }
+  } else if (uploadedFile && !isCloudinaryConfigured()) {
+    // Fallback: store locally
+    try {
+      const { writeFile, mkdir } = await import('node:fs/promises');
+      const dir = 'uploads/receipts';
+      await mkdir(dir, { recursive: true });
+      const ext = path.extname(uploadedFile.originalname).toLowerCase() || '.jpg';
+      const filename = `receipt-${order._id}-${Date.now()}${ext}`;
+      await writeFile(`${dir}/${filename}`, uploadedFile.buffer);
+      await Order.updateOne({ _id: order._id }, { 'payment.receipt': `/uploads/receipts/${filename}` });
+    } catch (err) {
+      console.error('[order] local receipt save failed:', err instanceof Error ? err.message : err);
     }
   }
 
+  // Reduce stock
   for (const { product, qty } of enriched) {
     const stock = product.stock as number;
     if (stock > 0) {
@@ -164,6 +171,7 @@ export const createOrder = asyncHandler(async (req, res) => {
   });
 });
 
+/* ── Public order lookup ─────────────────────────────────── */
 export const getOrderByNumber = asyncHandler(async (req, res) => {
   const orderNumber = (req.params.orderNumber || '').trim();
   const email = ((req.query.email as string) || '').trim().toLowerCase();
@@ -173,12 +181,13 @@ export const getOrderByNumber = asyncHandler(async (req, res) => {
   if (email) filter['customer.email'] = email;
 
   const order = await Order.findOne(filter)
-    .select('-payment.accountNumber -payment.accountName -payment.bankName -payment.receiptKey -__v')
+    .select('-payment.accountNumber -payment.accountName -payment.bankName -payment.receiptPublicId -__v')
     .lean();
   if (!order) throw new HttpError('Order not found', 404);
   res.json({ success: true, order });
 });
 
+/* ── Admin: list orders ──────────────────────────────────── */
 export const adminListOrders = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
@@ -206,12 +215,14 @@ export const adminListOrders = asyncHandler(async (req, res) => {
   res.json({ success: true, orders, total, page, pages: Math.ceil(total / limit) });
 });
 
+/* ── Admin: single order ────────────────────────────────── */
 export const adminGetOrder = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id).lean();
   if (!order) throw new HttpError('Order not found', 404);
   res.json({ success: true, order });
 });
 
+/* ── Admin: update order ────────────────────────────────── */
 export const adminUpdateOrder = asyncHandler(async (req, res) => {
   const { orderStatus, paymentStatus, deliveryStatus, adminNotes, rejectionReason } = req.body;
 
@@ -227,7 +238,6 @@ export const adminUpdateOrder = asyncHandler(async (req, res) => {
   }
   if (deliveryStatus) update.deliveryStatus = deliveryStatus;
   if (adminNotes !== undefined) update.adminNotes = adminNotes;
-
   if (Object.keys(update).length === 0) throw new HttpError('Nothing to update', 400);
 
   const order = await Order.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true }).lean();
@@ -235,25 +245,37 @@ export const adminUpdateOrder = asyncHandler(async (req, res) => {
   res.json({ success: true, order });
 });
 
+/**
+ * Admin: get a secure URL to view the payment receipt.
+ * For Cloudinary authenticated assets, generates a 1-hour signed URL server-side.
+ * The raw Cloudinary URL is never exposed directly — only the signed URL.
+ */
 export const adminGetReceiptUrl = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id).lean() as Record<string, unknown> | null;
   if (!order) throw new HttpError('Order not found', 404);
 
   const payment = order.payment as Record<string, unknown> | undefined;
-  const key = payment?.receiptKey as string | undefined;
-  const url = payment?.receipt as string | undefined;
+  const publicId = payment?.receiptPublicId as string | undefined;
+  const directUrl = payment?.receipt as string | undefined;
+  const resourceType = (payment?.receiptResourceType as string | undefined) === 'raw' ? 'raw' : 'image';
 
-  if (!key && !url) throw new HttpError('No receipt uploaded for this order', 404);
+  if (!publicId && !directUrl) throw new HttpError('No receipt uploaded for this order', 404);
 
-  if (key && isB2Configured()) {
-    const { getSignedReceiptUrl } = await import('../config/storage');
-    const signedUrl = await getSignedReceiptUrl(key);
+  // Generate a short-lived signed URL for the private Cloudinary asset
+  if (publicId && isCloudinaryConfigured()) {
+    const signedUrl = getPrivateCloudinaryUrl(publicId, resourceType);
     return res.json({ success: true, url: signedUrl, expires: 3600 });
   }
 
-  res.json({ success: true, url, expires: null });
+  // Fallback: local file (dev only — not publicly accessible without the backend)
+  if (directUrl) {
+    return res.json({ success: true, url: directUrl, expires: null });
+  }
+
+  throw new HttpError('Receipt is not accessible', 500);
 });
 
+/* ── Admin: dashboard stats ─────────────────────────────── */
 export const adminOrderStats = asyncHandler(async (_req, res) => {
   const [total, pending, paymentSubmitted, paymentVerified, processing, delivered, cancelled, proofAwaiting] =
     await Promise.all([
@@ -267,5 +289,8 @@ export const adminOrderStats = asyncHandler(async (_req, res) => {
       Order.countDocuments({ 'payment.status': 'PROOF_SUBMITTED' }),
     ]);
 
-  res.json({ success: true, stats: { total, pending, paymentSubmitted, paymentVerified, processing, delivered, cancelled, proofAwaiting } });
+  res.json({
+    success: true,
+    stats: { total, pending, paymentSubmitted, paymentVerified, processing, delivered, cancelled, proofAwaiting },
+  });
 });

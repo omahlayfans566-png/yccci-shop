@@ -1,4 +1,4 @@
-import { apiBase, apiUrl } from '../api/client';
+import { apiBase } from '../api/client';
 
 /** Formats a number as Naira. */
 export function formatMoney(amount: number): string {
@@ -12,54 +12,30 @@ export function formatMoney(amount: number): string {
 export function formatDate(iso?: string): string {
   if (!iso) return '';
   try {
-    return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return new Date(iso).toLocaleDateString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+    });
   } catch {
     return iso;
   }
 }
 
 /**
- * Resolves a stored image URL for display.
- *
- * B2 images are stored as full https://... URLs.
- * If the bucket is public  → use the URL directly.
- * If the bucket is private → the browser will get a 403.
- *
- * We always try the direct URL first. The <img> onError handler in components
- * should call resolveImageViaApi() to fetch a fresh signed URL as fallback.
+ * Resolve a stored image URL for display in the browser.
+ * Cloudinary URLs are full HTTPS — use them directly.
+ * Local /uploads/ paths are proxied via the API server.
  */
 export function resolveMediaUrl(url?: string): string {
   if (!url) return '';
-  // Already a full HTTPS URL (B2 direct or signed)
-  if (/^https?:\/\//i.test(url)) return url;
-  // Local /uploads/ path
+  if (/^https?:\/\//i.test(url)) return url;          // Cloudinary / B2 / any HTTPS
   if (url.startsWith('/uploads/')) {
     const base = apiBase();
-    return base ? `${base}${url}` : url;
+    return base ? `${base}${url}` : url;              // local dev receipt proxy
   }
   return url;
 }
 
-/**
- * Returns the API endpoint to fetch a fresh signed product image URL.
- * Use this as an onError fallback when the direct B2 URL returns 403.
- *
- * Usage in JSX:
- *   <img src={resolveMediaUrl(product.mainImage)}
- *        onError={(e) => fetchSignedImageUrl(product._id, 0).then(u => e.currentTarget.src = u)} />
- */
-export async function fetchSignedImageUrl(productId: string, index = 0): Promise<string> {
-  try {
-    const res = await fetch(apiUrl(`/api/products/${productId}/image-url?index=${index}`));
-    if (!res.ok) return '';
-    const data = await res.json() as { success: boolean; url: string };
-    return data.url || '';
-  } catch {
-    return '';
-  }
-}
-
-export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+export const MAX_FILE_SIZE = 10 * 1024 * 1024;
 export const ACCEPTED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 export function validateReceiptFile(file: File): string | null {

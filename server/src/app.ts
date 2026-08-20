@@ -11,11 +11,8 @@ export function createApp() {
   const app = express();
 
   app.disable('x-powered-by');
-
-  // Security headers — allow cross-origin for B2 media
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-  // CORS — only the shop frontend is allowed
   const allowedOrigins = env.clientUrl.split(',').map((o) => o.trim()).filter(Boolean);
   app.use(
     cors({
@@ -32,7 +29,7 @@ export function createApp() {
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-  // Serve locally-stored receipts (fallback when B2 is not configured)
+  // Serve local uploads (fallback for dev when Cloudinary is not configured)
   app.use('/uploads', express.static(uploadRoot, { maxAge: '7d' }));
 
   app.use('/api', apiRoutes);

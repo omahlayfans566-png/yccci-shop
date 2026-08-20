@@ -24,14 +24,14 @@ export type DeliveryStatus =
   | 'OUT_FOR_DELIVERY'
   | 'DELIVERED';
 
-const ORDER_STATUSES: OrderStatus[] = [
+export const ORDER_STATUSES: OrderStatus[] = [
   'PENDING', 'PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED', 'PROCESSING',
   'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED',
 ];
-const PAYMENT_STATUSES: PaymentStatus[] = [
+export const PAYMENT_STATUSES: PaymentStatus[] = [
   'PENDING', 'PROOF_SUBMITTED', 'VERIFIED', 'REJECTED', 'REFUNDED',
 ];
-const DELIVERY_STATUSES: DeliveryStatus[] = [
+export const DELIVERY_STATUSES: DeliveryStatus[] = [
   'PENDING', 'PROCESSING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED',
 ];
 
@@ -71,10 +71,12 @@ const OrderSchema = new Schema(
         index: true,
       },
       reference: { type: String, default: '', trim: true, maxlength: 200 },
-      /** URL/key of the uploaded receipt (B2 or local). */
+      /** Cloudinary secure_url for the uploaded receipt (private/authenticated). */
       receipt: { type: String, default: '' },
-      receiptKey: { type: String, default: '' },        // B2 object key
-      receiptBucket: { type: String, default: '' },
+      /** Cloudinary public_id for the receipt — used for deletion and signed URL generation. */
+      receiptPublicId: { type: String, default: '' },
+      /** 'image' or 'raw' — needed to correctly call Cloudinary delete/signed-url */
+      receiptResourceType: { type: String, default: 'image' },
       receiptOriginalName: { type: String, default: '' },
       receiptUploadedAt: { type: Date },
       rejectionReason: { type: String, default: '' },
@@ -99,11 +101,9 @@ const OrderSchema = new Schema(
 );
 
 OrderSchema.index({ createdAt: -1 });
-OrderSchema.index({ 'customer.phone': 1 });
 OrderSchema.index({ 'customer.email': 1 });
+OrderSchema.index({ 'customer.phone': 1 });
 
-export { ORDER_STATUSES, PAYMENT_STATUSES, DELIVERY_STATUSES };
 export type Order = InferSchemaType<typeof OrderSchema>;
 export type OrderDoc = HydratedDocument<Order>;
-
 export const Order = model('Order', OrderSchema);
