@@ -39,12 +39,13 @@ export function ProductsPage() {
     useEffect(() => { load(); }, []);
 
     async function handleDelete(product: AdminProduct) {
-        if (!confirm(`Deactivate "${product.name}"?\n\nIt will be hidden from the shop but not permanently deleted.`)) return;
+        if (!confirm(`Deactivate "${product.name}"?\n\nIt will be hidden from the public shop.`)) return;
         setDeleting(product._id);
         try {
             await adminApi.deleteProduct(product._id);
-            showToast(`"${product.name}" deactivated.`);
-            load();
+            // Remove immediately from local state — no full reload needed
+            setProducts((prev) => prev.filter((p) => p._id !== product._id));
+            showToast(`"${product.name}" deactivated and removed from shop.`);
         } catch (e: { message?: string } | unknown) {
             showToast((e as { message?: string }).message || 'Failed to deactivate product');
         } finally {
