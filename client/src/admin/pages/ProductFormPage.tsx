@@ -67,8 +67,10 @@ export function ProductFormPage() {
     }
 
     function addCustomSize() {
-        const s = customSize.trim().toUpperCase();
-        if (s && !sizes.includes(s)) setSizes((prev) => [...prev, s]);
+        // Support comma-separated input: "S,M,L,XL" → ['S','M','L','XL']
+        const parts = customSize.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+        const toAdd = parts.filter((s) => !sizes.includes(s));
+        if (toAdd.length > 0) setSizes((prev) => [...prev, ...toAdd]);
         setCustomSize('');
     }
 
@@ -210,8 +212,8 @@ export function ProductFormPage() {
                                     type="button"
                                     onClick={() => togglePresetSize(s)}
                                     className={`min-w-[3rem] rounded-lg border px-3 py-2 text-sm font-semibold transition-all ${sizes.includes(s)
-                                            ? 'border-brand-600 bg-brand-700 text-white shadow-sm'
-                                            : 'border-slate-300 bg-white text-slate-700 hover:border-brand-400 hover:bg-brand-50'
+                                        ? 'border-brand-600 bg-brand-700 text-white shadow-sm'
+                                        : 'border-slate-300 bg-white text-slate-700 hover:border-brand-400 hover:bg-brand-50'
                                         }`}
                                 >
                                     {s}
@@ -326,13 +328,19 @@ export function ProductFormPage() {
                             <input ref={fileRef} type="file" multiple accept="image/jpeg,image/png,image/webp"
                                 onChange={handleFileChange} className="hidden" id="prod-img-input" />
                             <label htmlFor="prod-img-input"
-                                className="flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-8 text-center transition-colors hover:border-brand-400 hover:bg-brand-50">
+                                className={`flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-8 text-center transition-colors ${newPreviews.length > 0 || existingImages.length > 0
+                                        ? 'border-emerald-300 hover:border-brand-400 hover:bg-brand-50'
+                                        : 'border-amber-300 bg-amber-50 hover:border-brand-400 hover:bg-brand-50'
+                                    }`}>
                                 <svg className="h-8 w-8 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                                     <path d="M12 16V4m0 0-4 4m4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
                                     <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" strokeLinecap="round" />
                                 </svg>
                                 <p className="text-sm font-medium text-slate-600">Click to upload images</p>
                                 <p className="text-xs text-slate-400">JPG, PNG, WEBP · Max 10 MB each</p>
+                                {newPreviews.length === 0 && existingImages.length === 0 && (
+                                    <p className="text-xs font-semibold text-amber-600 mt-1">⚠ No image selected — product will display without an image</p>
+                                )}
                             </label>
 
                             {newPreviews.length > 0 && (

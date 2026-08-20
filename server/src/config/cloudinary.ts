@@ -33,7 +33,6 @@ export async function uploadToCloudinary(
     opts: {
         folder: string;
         resourceType?: 'image' | 'raw' | 'auto';
-        /** 'authenticated' makes the asset private (for receipts) */
         type?: 'upload' | 'authenticated';
         transformation?: object[];
     }
@@ -49,7 +48,15 @@ export async function uploadToCloudinary(
                 transformation: opts.transformation,
             },
             (err, result) => {
-                if (err || !result) { reject(err ?? new Error('No result from Cloudinary')); return; }
+                if (err) {
+                    // Cloudinary SDK errors are plain objects, not Error instances
+                    const msg = (err as unknown as Record<string, unknown>).message
+                        ?? (err as unknown as Record<string, unknown>).error
+                        ?? JSON.stringify(err);
+                    reject(new Error(String(msg)));
+                    return;
+                }
+                if (!result) { reject(new Error('No result from Cloudinary')); return; }
                 resolve({
                     publicId: result.public_id,
                     secureUrl: result.secure_url,
@@ -134,22 +141,32 @@ export function getPrivateCloudinaryUrl(publicId: string, resourceType: 'image' 
 export async function testCloudinaryConnection(): Promise<{ ok: boolean; error?: string }> {
     if (!isCloudinaryConfigured()) return { ok: false, error: 'Cloudinary not configured' };
 
-    // Minimal valid 1×1 white JPEG (~600 bytes)
-    const pixelB64 =
-        '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB' +
-        'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/E' +
-        'ABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMR' +
-        'AD8AJQAB/9k=';
-    const buffer = Buffer.from(pixelB64, 'base64');
+    // Minimal valid 1×1 red PNG (67 bytes — known good)
+    const pngB64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==';
+    const buffer = Buffer.from(pngB64, 'base64');
 
     let publicId = '';
     try {
-        const r = await uploadToCloudinary(buffer, { folder: 'shop/_test', resourceType: 'image', type: 'upload' });
+        const r = await uploadToCloudinary(buffer, {
+            folder: 'shop/_test',
+            resourceType: 'image',
+            type: 'upload',
+        });
         publicId = r.publicId;
         await deleteFromCloudinary(publicId, 'image', 'upload');
         return { ok: true };
     } catch (err) {
         if (publicId) await deleteFromCloudinary(publicId, 'image', 'upload').catch(() => { });
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        // Properly serialize Cloudinary error objects
+        let message = 'Unknown error';
+        if (err instanceof Error) {
+            message = err.message;
+        } else if (err && typeof err === 'object') {
+            const e = err as Record<string, unknown>;
+            message = String(e.message ?? e.error ?? e.http_code ?? JSON.stringify(err));
+        } else {
+            message = String(err);
+        }
+        return { ok: false, error: message };
     }
 }
