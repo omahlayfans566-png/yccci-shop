@@ -6,16 +6,22 @@ import { ApiError } from '../api/client';
 
 const DELIVERY_OPTIONS = [
     {
-        id: 'pickup',
+        id: 'arrange_logistics',
         icon: '🚚',
-        title: 'I will send a logistics rider to pick up my order',
+        title: 'Please arrange logistics delivery to me',
+        description: 'We arrange delivery to your provided address.',
+    },
+    {
+        id: 'send_logistics',
+        icon: '🛵',
+        title: 'I will send a logistics person to pick up my order',
         description: 'You arrange a rider to collect from our location.',
     },
     {
-        id: 'delivery',
-        icon: '🛵',
-        title: 'Please send a logistics rider to deliver my order',
-        description: 'We arrange delivery to your provided address.',
+        id: 'self_pickup',
+        icon: '🚶',
+        title: 'I will come and pick up my order myself',
+        description: 'You come to our location to collect your order in person.',
     },
 ];
 
@@ -28,17 +34,36 @@ export function DeliveryMethodPage() {
     const [error, setError] = useState('');
     const submittedRef = useRef(false);
 
+    // Messages thread state
+    const [messages, setMessages] = useState<Array<{ from: string; text: string; createdAt: string }>>([]);
+    const [msgText, setMsgText] = useState('');
+    const [sendingMsg, setSendingMsg] = useState(false);
+    const [msgError, setMsgError] = useState('');
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
     const email = (() => {
         try { return sessionStorage.getItem('shop_last_email') || ''; }
         catch { return ''; }
     })();
 
-    // Check if already submitted
+    function scrollToBottom() {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function loadMessages() {
+        if (!orderNumber || !email) return;
+        shopApi.getOrderMessages(orderNumber, email)
+            .then((msgs) => { setMessages(msgs); setTimeout(scrollToBottom, 100); })
+            .catch(() => { });
+    }
+
+    // Check if already submitted + load messages
     useEffect(() => {
         if (!orderNumber || !email) return;
         shopApi.ordersLookup(orderNumber, email)
             .then((d) => { if (d?.deliveryMethod) setSubmitted(true); })
             .catch(() => { });
+        loadMessages();
     }, [orderNumber, email]);
 
     async function handleSubmit(e: FormEvent) {
@@ -56,6 +81,7 @@ export function DeliveryMethodPage() {
                 deliveryMessage: message.trim() || undefined,
             });
             setSubmitted(true);
+            loadMessages();
         } catch (err) {
             setError(err instanceof ApiError ? err.message : 'Could not save delivery preference. Please try again.');
             submittedRef.current = false;
@@ -63,6 +89,85 @@ export function DeliveryMethodPage() {
             setSubmitting(false);
         }
     }
+
+    async function handleSendMessage(e: FormEvent) {
+        e.preventDefault();
+        if (!msgText.trim() || !email) return;
+        setSendingMsg(true);
+        setMsgError('');
+        try {
+            await shopApi.sendCustomerMessage({ orderNumber, email, text: msgText.trim() });
+            setMsgText('');
+            loadMessages();
+        } catch (err) {
+            setMsgError(err instanceof ApiError ? err.message : 'Could not send message. Please try again.');
+        } finally {
+            setSendingMsg(false);
+        }
+    }
+
+    // Message thread — shown in both submitted and pre-submission states
+    const MessageThread = () => (
+        <div className="card mt-6 overflow-hidden">
+            <div className="bg-slate-800 px-5 py-4">
+                <h2 className="font-bold text-white text-sm">💬 Messages — Order {orderNumber}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Send a message to our team or see our replies.</p>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+                {messages.length === 0 ? (
+                    <p className="text-sm text-slate-400">No messages yet.</p>
+                ) : (
+                    <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                        {messages.map((msg, i) => (
+                            <div key={i} className={`flex ${msg.from === 'admin' ? 'justify-start' : 'justify-end'}`}>
+                                <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${msg.from === 'admin'
+                                    ? 'bg-brand-50 border border-brand-200 text-brand-900 rounded-tl-sm'
+                                    : 'bg-slate-800 text-white rounded-tr-sm'
+                                    }`}>
+                                    <p className="font-semibold text-xs mb-1 opacity-70">
+                                        {msg.from === 'admin' ? '🏪 YCCCI Shop' : 'You'}
+                                    </p>
+                                    <p className="leading-relaxed">{msg.text}</p>
+                                    <p className="text-xs mt-1 opacity-50">
+                                        {(() => {
+                                            try {
+                                                return new Date(msg.createdAt).toLocaleString('en-GB', {
+                                                    day: '2-digit', month: 'short', year: 'numeric',
+                                                    hour: '2-digit', minute: '2-digit',
+                                                });
+                                            } catch { return msg.createdAt; }
+                                        })()}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                        <div ref={messagesEndRef} />
+                    </div>
+                )}
+                {msgError && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{msgError}</div>
+                )}
+                <form onSubmit={handleSendMessage} className="flex gap-2">
+                    <input
+                        type="text"
+                        className="input flex-1 text-sm"
+                        value={msgText}
+                        onChange={(e) => setMsgText(e.target.value)}
+                        placeholder="Type a message to our team…"
+                        maxLength={1000}
+                        disabled={sendingMsg}
+                    />
+                    <button
+                        type="submit"
+                        disabled={sendingMsg || !msgText.trim()}
+                        className="btn-primary px-4 py-2 text-sm shrink-0"
+                    >
+                        {sendingMsg ? '…' : 'Send'}
+                    </button>
+                </form>
+            </div>
+        </div>
+    );
 
     if (submitted) {
         return (
@@ -87,6 +192,7 @@ export function DeliveryMethodPage() {
                             </Link>
                         </div>
                     </div>
+                    <MessageThread />
                 </main>
             </div>
         );
@@ -119,8 +225,8 @@ export function DeliveryMethodPage() {
                                     type="button"
                                     onClick={() => { setSelected(opt.id); setError(''); }}
                                     className={`w-full flex items-start gap-4 rounded-xl border-2 p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${selected === opt.id
-                                            ? 'border-brand-600 bg-brand-50'
-                                            : 'border-slate-200 bg-white hover:border-brand-300'
+                                        ? 'border-brand-600 bg-brand-50'
+                                        : 'border-slate-200 bg-white hover:border-brand-300'
                                         }`}
                                     aria-pressed={selected === opt.id}
                                 >
@@ -132,8 +238,8 @@ export function DeliveryMethodPage() {
                                         <p className="mt-1 text-xs text-slate-500">{opt.description}</p>
                                     </div>
                                     <span className={`mt-1 shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all ${selected === opt.id
-                                            ? 'border-brand-600 bg-brand-600'
-                                            : 'border-slate-300'
+                                        ? 'border-brand-600 bg-brand-600'
+                                        : 'border-slate-300'
                                         }`}>
                                         {selected === opt.id && (
                                             <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="currentColor">
@@ -145,10 +251,10 @@ export function DeliveryMethodPage() {
                             ))}
                         </div>
 
-                        {/* Optional message */}
+                        {/* Custom message */}
                         <div>
                             <label htmlFor="delivery-msg" className="label">
-                                Additional delivery instructions{' '}
+                                Other delivery instructions or message{' '}
                                 <span className="font-normal text-slate-400">(optional)</span>
                             </label>
                             <textarea
@@ -157,7 +263,7 @@ export function DeliveryMethodPage() {
                                 className="input resize-none"
                                 value={message}
                                 onChange={(e) => setMessage(e.target.value)}
-                                placeholder="Type any additional message or delivery instruction… (landmark, gate code, call before delivery, etc.)"
+                                placeholder="E.g. I have my own dispatch rider. Please contact me before the order is ready."
                                 maxLength={1000}
                             />
                             <p className="mt-1 text-xs text-slate-400">{message.length}/1000</p>
@@ -187,6 +293,8 @@ export function DeliveryMethodPage() {
                         </Link>
                     </form>
                 </div>
+
+                <MessageThread />
             </main>
         </div>
     );

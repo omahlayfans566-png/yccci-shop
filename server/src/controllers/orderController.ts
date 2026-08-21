@@ -212,6 +212,8 @@ export const submitDeliveryMethod = asyncHandler(async (req, res) => {
     customerName: cust?.fullName ?? '',
     customerPhone: cust?.phone ?? '',
     customerEmail: cust?.email ?? '',
+    customerAddress: [cust?.address, cust?.city, cust?.state].filter(Boolean).join(', '),
+    paymentStatus: String((order.payment as unknown as Record<string, unknown>)?.status ?? ''),
     deliveryMethod: order.deliveryMethod ?? '',
     deliveryMessage: order.deliveryMessage ?? '',
     total: order.total,

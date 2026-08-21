@@ -117,6 +117,8 @@ export async function sendDeliveryMethodEmail(opts: {
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  customerAddress: string;
+  paymentStatus: string;
   deliveryMethod: string;
   deliveryMessage: string;
   total: number;
@@ -125,7 +127,7 @@ export async function sendDeliveryMethodEmail(opts: {
   const html = `
 <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
   <div style="background:#0b1f35;padding:20px 24px;">
-    <h1 style="color:#fff;margin:0;font-size:18px;">Delivery Instructions Received</h1>
+    <h1 style="color:#fff;margin:0;font-size:18px;">Customer Delivery Instructions</h1>
     <p style="color:#93c5fd;margin:4px 0 0;font-size:13px;">${opts.orderNumber}</p>
   </div>
   <div style="padding:24px;">
@@ -133,6 +135,8 @@ export async function sendDeliveryMethodEmail(opts: {
       <tr><td style="padding:4px 0;width:160px;color:#64748b">Customer</td><td><strong>${opts.customerName}</strong></td></tr>
       <tr><td style="padding:4px 0;color:#64748b">Phone</td><td>${opts.customerPhone}</td></tr>
       <tr><td style="padding:4px 0;color:#64748b">Email</td><td>${opts.customerEmail}</td></tr>
+      <tr><td style="padding:4px 0;color:#64748b">Delivery Address</td><td>${opts.customerAddress}</td></tr>
+      <tr><td style="padding:4px 0;color:#64748b">Payment Status</td><td><strong>${opts.paymentStatus}</strong></td></tr>
       <tr><td style="padding:4px 0;color:#64748b">Order Total</td><td><strong>₦${opts.total.toLocaleString('en-NG')}</strong></td></tr>
     </table>
 
