@@ -96,6 +96,20 @@ const OrderSchema = new Schema(
       default: 'PENDING',
     },
     adminNotes: { type: String, default: '' },
+    /** Customer-submitted delivery method after order is placed */
+    deliveryMethod: { type: String, default: '' },
+    deliveryMessage: { type: String, default: '', maxlength: 2000 },
+    deliverySubmittedAt: { type: Date },
+    /** Admin ↔ Customer message thread */
+    messages: {
+      type: [{
+        _id: false,
+        from: { type: String, enum: ['admin', 'customer'], required: true },
+        text: { type: String, required: true, maxlength: 2000 },
+        createdAt: { type: Date, default: () => new Date() },
+      }],
+      default: [],
+    },
   },
   { timestamps: true }
 );

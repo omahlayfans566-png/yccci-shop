@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { adminApi } from '../api/adminApi';
 import type { AdminOrder } from '../types';
@@ -25,12 +25,16 @@ export function OrderDetailPage() {
     const [saving, setSaving] = useState(false);
     const [receiptUrl, setReceiptUrl] = useState('');
     const [receiptLoading, setReceiptLoading] = useState(false);
+    const [replyText, setReplyText] = useState('');
+    const [replying, setReplying] = useState(false);
 
     // Editable fields
     const [orderStatus, setOrderStatus] = useState('');
     const [paymentStatus, setPaymentStatus] = useState('');
     const [adminNotes, setAdminNotes] = useState('');
     const [rejectionReason, setRejectionReason] = useState('');
+
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3500); }
 
@@ -45,11 +49,17 @@ export function OrderDetailPage() {
                 setAdminNotes(r.order.adminNotes || '');
                 setRejectionReason(r.order.payment.rejectionReason || '');
             })
-            .catch((e) => setError(e.message || 'Failed to load order'))
+            .catch((e: { message?: string }) => setError(e.message || 'Failed to load order'))
             .finally(() => setLoading(false));
     }
 
     useEffect(() => { load(); }, [id]);
+
+    useEffect(() => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [order?.messages?.length]);
 
     async function handleSave() {
         if (!id || !order) return;
@@ -63,8 +73,8 @@ export function OrderDetailPage() {
             });
             setOrder(updated.order);
             showToast('Order updated successfully.');
-        } catch (e: any) {
-            showToast(e.message || 'Failed to update order');
+        } catch (e: { message?: string } | unknown) {
+            showToast((e as { message?: string }).message || 'Failed to update order');
         } finally {
             setSaving(false);
         }
@@ -77,10 +87,25 @@ export function OrderDetailPage() {
             const r = await adminApi.getReceiptUrl(id);
             setReceiptUrl(r.url);
             window.open(r.url, '_blank');
-        } catch (e: any) {
-            showToast(e.message || 'Could not load receipt');
+        } catch (e: { message?: string } | unknown) {
+            showToast((e as { message?: string }).message || 'Could not load receipt');
         } finally {
             setReceiptLoading(false);
+        }
+    }
+
+    async function handleReply() {
+        if (!id || !replyText.trim()) return;
+        setReplying(true);
+        try {
+            const result = await adminApi.replyToCustomer(id, replyText.trim());
+            setOrder((prev) => prev ? { ...prev, messages: result.messages as AdminOrder['messages'] } : prev);
+            setReplyText('');
+            showToast('Reply sent to customer.');
+        } catch (e: { message?: string } | unknown) {
+            showToast((e as { message?: string }).message || 'Failed to send reply');
+        } finally {
+            setReplying(false);
         }
     }
 
@@ -111,19 +136,19 @@ export function OrderDetailPage() {
             </div>
 
             <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-                {/* Left */}
+                {/* ── Left ── */}
                 <div className="space-y-5">
                     {/* Customer */}
                     <section className="card p-5">
                         <h2 className="mb-3 font-bold text-slate-800">Customer Details</h2>
                         <dl className="grid gap-2 sm:grid-cols-2">
-                            {[
+                            {([
                                 ['Full Name', order.customer.fullName],
                                 ['Phone', order.customer.phone],
                                 ['Email', order.customer.email],
                                 ['State', order.customer.state],
                                 ['City', order.customer.city],
-                            ].map(([label, value]) => (
+                            ] as [string, string][]).map(([label, value]) => (
                                 <div key={label}>
                                     <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
                                     <dd className="text-sm text-slate-800">{value}</dd>
@@ -136,11 +161,33 @@ export function OrderDetailPage() {
                             {order.customer.note && (
                                 <div className="sm:col-span-2">
                                     <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Note</dt>
-                                    <dd className="text-sm text-slate-600 italic">{order.customer.note}</dd>
+                                    <dd className="text-sm italic text-slate-600">{order.customer.note}</dd>
                                 </div>
                             )}
                         </dl>
                     </section>
+
+                    {/* Delivery method */}
+                    {(order.deliveryMethod || order.deliveryMessage) && (
+                        <section className="card p-5">
+                            <h2 className="mb-3 font-bold text-slate-800">Delivery Instructions</h2>
+                            {order.deliveryMethod && (
+                                <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 mb-3">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-400 mb-1">Selected Method</p>
+                                    <p className="text-sm font-semibold text-blue-900">{order.deliveryMethod}</p>
+                                </div>
+                            )}
+                            {order.deliveryMessage && (
+                                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Customer Message</p>
+                                    <p className="text-sm italic text-slate-700">"{order.deliveryMessage}"</p>
+                                </div>
+                            )}
+                            {order.deliverySubmittedAt && (
+                                <p className="mt-2 text-xs text-slate-400">Submitted: {fmtDate(order.deliverySubmittedAt)}</p>
+                            )}
+                        </section>
+                    )}
 
                     {/* Items */}
                     <section className="card p-5">
@@ -204,32 +251,67 @@ export function OrderDetailPage() {
                                 </div>
                             )}
                         </dl>
-
-                        {/* Receipt button */}
-                        {(order.payment.receipt || order.payment.receiptKey) && (
+                        {(order.payment.receipt || (order.payment as { receiptKey?: string }).receiptKey) && (
                             <div className="mt-4 flex flex-wrap gap-3">
-                                <button
-                                    type="button"
-                                    onClick={loadReceipt}
-                                    disabled={receiptLoading}
-                                    className="btn-primary px-4 py-2 text-sm"
-                                >
+                                <button type="button" onClick={loadReceipt} disabled={receiptLoading} className="btn-primary px-4 py-2 text-sm">
                                     {receiptLoading ? 'Loading…' : '📄 View Receipt'}
                                 </button>
                                 {receiptUrl && (
-                                    <a href={receiptUrl} target="_blank" rel="noreferrer" className="btn-outline px-4 py-2 text-sm">
-                                        Open in New Tab
-                                    </a>
+                                    <a href={receiptUrl} target="_blank" rel="noreferrer" className="btn-outline px-4 py-2 text-sm">Open in New Tab</a>
                                 )}
                             </div>
                         )}
-                        {!order.payment.receipt && !order.payment.receiptKey && (
+                        {!order.payment.receipt && !(order.payment as { receiptKey?: string }).receiptKey && (
                             <p className="mt-3 text-sm text-slate-400">No receipt uploaded yet.</p>
                         )}
                     </section>
+
+                    {/* Messages thread */}
+                    <section className="card p-5">
+                        <h2 className="mb-3 font-bold text-slate-800">Messages</h2>
+                        {(!order.messages || order.messages.length === 0) ? (
+                            <p className="text-sm text-slate-400 mb-3">No messages yet. Send a reply to the customer below.</p>
+                        ) : (
+                            <div className="space-y-3 mb-4 max-h-72 overflow-y-auto pr-1">
+                                {order.messages.map((msg, i) => (
+                                    <div key={i} className={`flex ${msg.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${msg.from === 'admin'
+                                                ? 'bg-brand-800 text-white rounded-br-sm'
+                                                : 'bg-slate-100 text-slate-800 rounded-bl-sm'
+                                            }`}>
+                                            <p className="font-semibold text-xs mb-1 opacity-70">
+                                                {msg.from === 'admin' ? 'Admin' : order.customer.fullName}
+                                            </p>
+                                            <p className="leading-relaxed">{msg.text}</p>
+                                            <p className="text-xs mt-1 opacity-60">{fmtDate(msg.createdAt)}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                                <div ref={messagesEndRef} />
+                            </div>
+                        )}
+                        <div className="space-y-2">
+                            <textarea
+                                rows={3}
+                                className="input resize-none"
+                                value={replyText}
+                                onChange={(e) => setReplyText(e.target.value)}
+                                placeholder={`Reply to ${order.customer.fullName}… (they'll receive it by email)`}
+                                maxLength={2000}
+                            />
+                            <button
+                                type="button"
+                                onClick={handleReply}
+                                disabled={replying || !replyText.trim()}
+                                className="btn-primary w-full py-2.5 text-sm"
+                            >
+                                {replying ? 'Sending…' : '✉ Send Reply to Customer'}
+                            </button>
+                        </div>
+                    </section>
                 </div>
 
-                {/* Right */}
+                {/* ── Right ── */}
                 <div className="space-y-5">
                     {/* Status management */}
                     <section className="card p-5 space-y-4">
@@ -250,42 +332,26 @@ export function OrderDetailPage() {
                                 ))}
                             </select>
                         </div>
-
                         {paymentStatus === 'REJECTED' && (
                             <div>
                                 <label className="label">Rejection Reason</label>
-                                <textarea
-                                    rows={3}
-                                    className="input"
-                                    value={rejectionReason}
+                                <textarea rows={3} className="input" value={rejectionReason}
                                     onChange={(e) => setRejectionReason(e.target.value)}
-                                    placeholder="Explain why payment was rejected…"
-                                />
+                                    placeholder="Explain why payment was rejected…" />
                             </div>
                         )}
-
                         <div>
                             <label className="label">Admin Notes</label>
-                            <textarea
-                                rows={3}
-                                className="input"
-                                value={adminNotes}
+                            <textarea rows={3} className="input" value={adminNotes}
                                 onChange={(e) => setAdminNotes(e.target.value)}
-                                placeholder="Internal notes about this order…"
-                            />
+                                placeholder="Internal notes about this order…" />
                         </div>
-
-                        <button
-                            type="button"
-                            onClick={handleSave}
-                            disabled={saving}
-                            className="btn-primary w-full py-3"
-                        >
+                        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary w-full py-3">
                             {saving ? 'Saving…' : 'Save Changes'}
                         </button>
                     </section>
 
-                    {/* Current status summary */}
+                    {/* Status summary */}
                     <section className="card p-5 space-y-3">
                         <h2 className="font-bold text-slate-800">Current Status</h2>
                         <div className="flex items-center justify-between">
@@ -299,6 +365,10 @@ export function OrderDetailPage() {
                             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${PAYMENT_STATUS_COLORS[order.payment.status] || 'bg-slate-100 text-slate-700'}`}>
                                 {PAYMENT_STATUS_LABELS[order.payment.status] || order.payment.status}
                             </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-500">Delivery</span>
+                            <span className="text-sm text-slate-700">{order.deliveryMethod ? '✅ Received' : '⏳ Pending'}</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <span className="text-sm text-slate-500">Order #</span>

@@ -42,20 +42,45 @@ export const shopApi = {
     return apiUpload<SubmitOrderResponse>('/api/orders', form);
   },
 
+  async submitDeliveryMethod(data: {
+    orderNumber: string;
+    email: string;
+    deliveryMethod: string;
+    deliveryMessage?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    return apiRequest('/api/orders/delivery', { method: 'POST', body: data });
+  },
+
+  async getOrderMessages(orderNumber: string, email: string): Promise<Array<{ from: string; text: string; createdAt: string }>> {
+    const data = await apiRequest<{ success: boolean; messages: Array<{ from: string; text: string; createdAt: string }> }>(
+      `/api/orders/number/${encodeURIComponent(orderNumber)}/messages?email=${encodeURIComponent(email)}`
+    );
+    return data.messages;
+  },
+
+  async sendCustomerMessage(data: { orderNumber: string; email: string; text: string }): Promise<{ success: boolean }> {
+    return apiRequest('/api/orders/message', { method: 'POST', body: data });
+  },
+
   async ordersLookup(
     orderNumber: string,
     email?: string
-  ): Promise<{ receipt: string; total: number } | null> {
+  ): Promise<{ receipt: string; total: number; deliveryMethod?: string } | null> {
     const query = new URLSearchParams();
     if (email) query.set('email', email);
     const qs = query.toString();
     const data = await apiRequest<{
       success: boolean;
-      order: { total: number; payment?: { receipt?: string; status?: string } };
+      order: {
+        total: number;
+        deliveryMethod?: string;
+        payment?: { receipt?: string; status?: string };
+      };
     }>(`/api/orders/number/${encodeURIComponent(orderNumber)}${qs ? `?${qs}` : ''}`);
     return {
       receipt: data.order?.payment?.receipt || '',
       total: data.order?.total || 0,
+      deliveryMethod: data.order?.deliveryMethod,
     };
   },
 };

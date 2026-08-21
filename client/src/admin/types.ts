@@ -77,6 +77,12 @@ export interface AdminOrder {
     orderStatus: string;
     deliveryStatus: string;
     adminNotes?: string;
+    /** Customer-selected delivery method */
+    deliveryMethod?: string;
+    deliveryMessage?: string;
+    deliverySubmittedAt?: string;
+    /** Admin ↔ customer message thread */
+    messages?: Array<{ from: 'admin' | 'customer'; text: string; createdAt: string }>;
     createdAt: string;
     updatedAt: string;
 }

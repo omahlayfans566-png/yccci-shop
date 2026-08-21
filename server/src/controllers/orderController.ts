@@ -7,15 +7,17 @@ import { asyncHandler, HttpError } from '../middleware/error';
 import { generateOrderNumber } from '../utils/orderNumber';
 import {
   uploadReceiptToCloudinary,
-  deleteFromCloudinary,
   getPrivateCloudinaryUrl,
   isCloudinaryConfigured,
 } from '../config/cloudinary';
+import {
+  sendNewOrderEmail,
+  sendDeliveryMethodEmail,
+  sendAdminReplyEmail,
+  isEmailConfigured,
+} from '../utils/email';
+import { env } from '../config/env';
 
-/**
- * Multipart form data delivers customer + items as JSON strings.
- * Parse them back to objects before the validator runs.
- */
 export function parseOrderBody(req: Request, _res: Response, next: NextFunction): void {
   if (req.is('multipart/form-data')) {
     const parse = (v: unknown): unknown => {
@@ -32,7 +34,6 @@ export function parseOrderBody(req: Request, _res: Response, next: NextFunction)
   next();
 }
 
-/** Upload a payment receipt buffer to Cloudinary (authenticated/private). */
 async function uploadReceipt(
   file: Express.Multer.File,
   orderId: string
@@ -42,18 +43,15 @@ async function uploadReceipt(
   return { url: result.secureUrl, publicId: result.publicId, resourceType: isImage ? 'image' : 'raw' };
 }
 
-/* ── Create Order ────────────────────────────────────────── */
+/* ── Create Order ──────────────────────────────────────── */
 export const createOrder = asyncHandler(async (req, res) => {
   const uploadedFile = req.file as Express.Multer.File | undefined;
   const customer: Record<string, string> = req.body.customer || {};
   const itemsRaw: unknown[] = req.body.items || [];
   const paymentRef: string = req.body.paymentRef || '';
 
-  if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) {
-    throw new HttpError('Your cart is empty.', 400);
-  }
+  if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) throw new HttpError('Your cart is empty.', 400);
 
-  // Validate every item against the live catalogue
   const enriched: Array<{ product: Record<string, unknown>; qty: number; size: string; colour: string }> = [];
   for (const rawItem of itemsRaw) {
     const raw = rawItem as Record<string, unknown>;
@@ -126,7 +124,6 @@ export const createOrder = asyncHandler(async (req, res) => {
     orderStatus: uploadedFile || paymentRef ? 'PAYMENT_SUBMITTED' : 'PENDING',
   });
 
-  // Upload receipt to Cloudinary (private) after order is created
   if (uploadedFile && isCloudinaryConfigured()) {
     try {
       const { url, publicId, resourceType } = await uploadReceipt(uploadedFile, order._id.toString());
@@ -139,7 +136,6 @@ export const createOrder = asyncHandler(async (req, res) => {
       console.error('[order] receipt upload failed:', err instanceof Error ? err.message : err);
     }
   } else if (uploadedFile && !isCloudinaryConfigured()) {
-    // Fallback: store locally
     try {
       const { writeFile, mkdir } = await import('node:fs/promises');
       const dir = 'uploads/receipts';
@@ -153,7 +149,6 @@ export const createOrder = asyncHandler(async (req, res) => {
     }
   }
 
-  // Reduce stock
   for (const { product, qty } of enriched) {
     const stock = product.stock as number;
     if (stock > 0) {
@@ -165,13 +160,119 @@ export const createOrder = asyncHandler(async (req, res) => {
     }
   }
 
+  // Admin notification — non-blocking, never crashes the order flow
+  sendNewOrderEmail({
+    orderNumber,
+    customer: {
+      fullName: customer.fullName ?? '',
+      phone: customer.phone ?? '',
+      email: customer.email ?? '',
+      address: customer.address ?? '',
+      state: customer.state ?? '',
+      city: customer.city ?? '',
+      note: customer.note,
+    },
+    items: items.map((i) => ({ name: i.name, quantity: i.quantity, size: i.size, colour: i.colour, price: i.price })),
+    total: subtotal,
+    payment: { status: uploadedFile || paymentRef ? 'PROOF_SUBMITTED' : 'PENDING', reference: paymentRef },
+    createdAt: order.createdAt,
+  }).catch(() => { });
+
   res.status(201).json({
     success: true,
     order: { orderNumber, createdAt: order.createdAt, total: order.total },
   });
 });
 
-/* ── Public order lookup ─────────────────────────────────── */
+/* ── Public: submit delivery method ──────────────────────── */
+export const submitDeliveryMethod = asyncHandler(async (req, res) => {
+  const { orderNumber, email, deliveryMethod, deliveryMessage } = req.body;
+  if (!orderNumber?.trim()) throw new HttpError('Order number is required', 400);
+  if (!email?.trim()) throw new HttpError('Email is required', 400);
+  if (!deliveryMethod?.trim()) throw new HttpError('Please select a delivery method', 400);
+
+  const order = await Order.findOne({
+    orderNumber: orderNumber.trim(),
+    'customer.email': email.trim().toLowerCase(),
+  });
+  if (!order) throw new HttpError('Order not found', 404);
+
+  if (order.deliverySubmittedAt) {
+    return res.json({ success: true, message: 'Delivery method already submitted' });
+  }
+
+  order.deliveryMethod = deliveryMethod.trim();
+  order.deliveryMessage = (deliveryMessage || '').trim().slice(0, 2000);
+  order.deliverySubmittedAt = new Date();
+  await order.save();
+
+  const cust = order.customer as unknown as Record<string, string>;
+  sendDeliveryMethodEmail({
+    orderNumber: order.orderNumber,
+    customerName: cust?.fullName ?? '',
+    customerPhone: cust?.phone ?? '',
+    customerEmail: cust?.email ?? '',
+    deliveryMethod: order.deliveryMethod ?? '',
+    deliveryMessage: order.deliveryMessage ?? '',
+    total: order.total,
+  }).catch(() => { });
+
+  res.json({ success: true, message: 'Delivery method saved' });
+});
+
+/* ── Public: get messages ────────────────────────────────── */
+export const getOrderMessages = asyncHandler(async (req, res) => {
+  const { orderNumber } = req.params;
+  const email = ((req.query.email as string) || '').trim().toLowerCase();
+  if (!email) throw new HttpError('Email is required', 400);
+
+  const order = await Order.findOne({
+    orderNumber: orderNumber.trim(),
+    'customer.email': email,
+  }).select('messages orderNumber').lean() as Record<string, unknown> | null;
+  if (!order) throw new HttpError('Order not found', 404);
+
+  res.json({ success: true, messages: (order.messages as unknown[]) || [] });
+});
+
+/* ── Public: customer sends message ─────────────────────── */
+export const customerSendMessage = asyncHandler(async (req, res) => {
+  const { orderNumber, email, text } = req.body;
+  if (!orderNumber?.trim()) throw new HttpError('Order number is required', 400);
+  if (!email?.trim()) throw new HttpError('Email is required', 400);
+  if (!text?.trim()) throw new HttpError('Message text is required', 400);
+
+  const order = await Order.findOne({
+    orderNumber: orderNumber.trim(),
+    'customer.email': email.trim().toLowerCase(),
+  });
+  if (!order) throw new HttpError('Order not found', 404);
+
+  order.messages.push({ from: 'customer', text: text.trim().slice(0, 2000), createdAt: new Date() });
+  await order.save();
+
+  if (isEmailConfigured()) {
+    const cust = order.customer as unknown as Record<string, string>;
+    const nodemailer = await import('nodemailer');
+    try {
+      const t = nodemailer.createTransport({
+        host: env.emailHost, port: env.emailPort,
+        secure: env.emailPort === 465,
+        auth: { user: env.emailUser, pass: env.emailPass },
+      });
+      await t.sendMail({
+        from: `"YCCCI Shop" <${env.emailUser}>`,
+        to: env.adminEmail,
+        subject: `💬 Customer Message — ${order.orderNumber}`,
+        html: `<p><strong>${cust?.fullName ?? ''}</strong> (${cust?.phone ?? ''}) sent a message for order <strong>${order.orderNumber}</strong>:</p><blockquote style="border-left:4px solid #c9a227;padding:12px;background:#f8fafc">${text.trim()}</blockquote>`,
+      });
+    } catch { /* non-fatal */ }
+  }
+
+  res.json({ success: true, message: 'Message sent' });
+});
+
+/* ── Public order lookup ────────────────────────────────── */
 export const getOrderByNumber = asyncHandler(async (req, res) => {
   const orderNumber = (req.params.orderNumber || '').trim();
   const email = ((req.query.email as string) || '').trim().toLowerCase();
@@ -187,7 +288,7 @@ export const getOrderByNumber = asyncHandler(async (req, res) => {
   res.json({ success: true, order });
 });
 
-/* ── Admin: list orders ──────────────────────────────────── */
+/* ── Admin: list orders ─────────────────────────────────── */
 export const adminListOrders = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
@@ -211,7 +312,6 @@ export const adminListOrders = asyncHandler(async (req, res) => {
     Order.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     Order.countDocuments(filter),
   ]);
-
   res.json({ success: true, orders, total, page, pages: Math.ceil(total / limit) });
 });
 
@@ -225,7 +325,6 @@ export const adminGetOrder = asyncHandler(async (req, res) => {
 /* ── Admin: update order ────────────────────────────────── */
 export const adminUpdateOrder = asyncHandler(async (req, res) => {
   const { orderStatus, paymentStatus, deliveryStatus, adminNotes, rejectionReason } = req.body;
-
   const update: Record<string, unknown> = {};
   if (orderStatus) {
     if (!ORDER_STATUSES.includes(orderStatus)) throw new HttpError('Invalid order status', 400);
@@ -245,11 +344,29 @@ export const adminUpdateOrder = asyncHandler(async (req, res) => {
   res.json({ success: true, order });
 });
 
-/**
- * Admin: get a secure URL to view the payment receipt.
- * For Cloudinary authenticated assets, generates a 1-hour signed URL server-side.
- * The raw Cloudinary URL is never exposed directly — only the signed URL.
- */
+/* ── Admin: reply to customer ────────────────────────────── */
+export const adminReplyToCustomer = asyncHandler(async (req, res) => {
+  const { text } = req.body;
+  if (!text?.trim()) throw new HttpError('Reply text is required', 400);
+
+  const order = await Order.findById(req.params.id);
+  if (!order) throw new HttpError('Order not found', 404);
+
+  order.messages.push({ from: 'admin', text: text.trim().slice(0, 2000), createdAt: new Date() });
+  await order.save();
+
+  const cust = order.customer as unknown as Record<string, string>;
+  sendAdminReplyEmail({
+    orderNumber: order.orderNumber,
+    customerEmail: cust?.email ?? '',
+    customerName: cust?.fullName ?? '',
+    replyText: text.trim(),
+  }).catch(() => { });
+
+  res.json({ success: true, messages: order.messages });
+});
+
+/* ── Admin: get receipt URL ─────────────────────────────── */
 export const adminGetReceiptUrl = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id).lean() as Record<string, unknown> | null;
   if (!order) throw new HttpError('Order not found', 404);
@@ -261,17 +378,11 @@ export const adminGetReceiptUrl = asyncHandler(async (req, res) => {
 
   if (!publicId && !directUrl) throw new HttpError('No receipt uploaded for this order', 404);
 
-  // Generate a short-lived signed URL for the private Cloudinary asset
   if (publicId && isCloudinaryConfigured()) {
     const signedUrl = getPrivateCloudinaryUrl(publicId, resourceType);
     return res.json({ success: true, url: signedUrl, expires: 3600 });
   }
-
-  // Fallback: local file (dev only — not publicly accessible without the backend)
-  if (directUrl) {
-    return res.json({ success: true, url: directUrl, expires: null });
-  }
-
+  if (directUrl) return res.json({ success: true, url: directUrl, expires: null });
   throw new HttpError('Receipt is not accessible', 500);
 });
 
@@ -288,9 +399,5 @@ export const adminOrderStats = asyncHandler(async (_req, res) => {
       Order.countDocuments({ orderStatus: 'CANCELLED' }),
       Order.countDocuments({ 'payment.status': 'PROOF_SUBMITTED' }),
     ]);
-
-  res.json({
-    success: true,
-    stats: { total, pending, paymentSubmitted, paymentVerified, processing, delivered, cancelled, proofAwaiting },
-  });
+  res.json({ success: true, stats: { total, pending, paymentSubmitted, paymentVerified, processing, delivered, cancelled, proofAwaiting } });
 });

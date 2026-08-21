@@ -127,6 +127,11 @@ export const adminApi = {
             `/api/orders/admin/${id}/receipt`
         ),
 
+    replyToCustomer: (id: string, text: string) =>
+        adminRequest<{ success: boolean; messages: Array<{ from: string; text: string; createdAt: string }> }>(
+            `/api/orders/admin/${id}/reply`, { method: 'POST', body: { text } }
+        ),
+
     /* ── Payment Settings ─── */
     getPaymentSettings: () =>
         adminRequest<{ success: boolean; paymentSettings: PaymentSettingsData }>(

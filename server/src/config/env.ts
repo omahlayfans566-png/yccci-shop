@@ -50,6 +50,14 @@ export const env = {
   cloudinaryCloudName: strFromEnv('CLOUDINARY_CLOUD_NAME'),
   cloudinaryApiKey: strFromEnv('CLOUDINARY_API_KEY'),
   cloudinaryApiSecret: strFromEnv('CLOUDINARY_API_SECRET'),
+  // Email notifications (Gmail SMTP — port 587 + STARTTLS)
+  // Render env vars: EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, ADMIN_EMAIL
+  emailHost: strFromEnv('EMAIL_HOST', 'smtp.gmail.com'),
+  emailPort: intFromEnv('EMAIL_PORT', 587),
+  emailUser: strFromEnv('EMAIL_USER'),
+  // Accept EMAIL_PASSWORD (Render) OR EMAIL_PASS (local .env)
+  emailPass: strFromEnv('EMAIL_PASSWORD', strFromEnv('EMAIL_PASS')),
+  adminEmail: strFromEnv('ADMIN_EMAIL', 'secondkiro0@gmail.com'),
   adminInitial: {
     email: strFromEnv('ADMIN_INITIAL_EMAIL', 'admin@shop.com'),
     password: strFromEnv('ADMIN_INITIAL_PASSWORD', 'ChangeMe123!'),

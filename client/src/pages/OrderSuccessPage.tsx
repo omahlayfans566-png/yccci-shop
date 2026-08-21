@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
 import { shopApi } from '../api/shopApi';
 import { formatMoney, formatDate } from '../utils/format';
@@ -12,8 +12,10 @@ interface StoredResult {
 
 export function OrderSuccessPage() {
   const { orderNumber = '' } = useParams();
+  const navigate = useNavigate();
   const [result, setResult] = useState<StoredResult | null>(null);
   const [orderData, setOrderData] = useState<{ receipt: string; total: number } | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     try {
@@ -27,6 +29,11 @@ export function OrderSuccessPage() {
     })();
     shopApi.ordersLookup(orderNumber, email).then(setOrderData).catch(() => setOrderData(null));
   }, [orderNumber]);
+
+  function goToDelivery() {
+    setRedirecting(true);
+    navigate(`/delivery-method/${orderNumber}`);
+  }
 
   return (
     <div className="min-h-screen">
@@ -70,9 +77,28 @@ export function OrderSuccessPage() {
             {/* Receipt confirmation */}
             {orderData?.receipt && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                ✅ Your payment receipt was saved with your order and will be reviewed by our team.
+                ✅ Your payment receipt was saved and will be reviewed by our team.
               </div>
             )}
+
+            {/* Delivery method CTA */}
+            <div className="rounded-xl border-2 border-brand-200 bg-brand-50 p-5 space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🚚</span>
+                <div>
+                  <h2 className="font-bold text-brand-900">Next Step: Select Delivery Method</h2>
+                  <p className="text-sm text-brand-700">Tell us how you'd like to receive your order.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={goToDelivery}
+                disabled={redirecting}
+                className="btn-primary w-full py-3 text-base"
+              >
+                {redirecting ? 'Loading…' : 'Choose Delivery Method →'}
+              </button>
+            </div>
 
             {/* What happens next */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 space-y-3">
@@ -88,7 +114,7 @@ export function OrderSuccessPage() {
               </p>
             </div>
 
-            <Link to="/" className="btn-primary mt-2 w-full py-3 text-center block">
+            <Link to="/" className="btn-outline w-full py-2.5 text-center block text-sm">
               Continue Shopping
             </Link>
           </div>

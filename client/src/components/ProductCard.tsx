@@ -18,6 +18,7 @@ export const ProductCard = memo(function ProductCard({ product, onAdd }: Props) 
 
   return (
     <article className="card group flex flex-col overflow-hidden transition-shadow hover:shadow-md">
+      {/* Image */}
       <Link
         to={`/product/${product._id}`}
         className="relative block aspect-square overflow-hidden bg-slate-100"
@@ -33,43 +34,53 @@ export const ProductCard = memo(function ProductCard({ product, onAdd }: Props) 
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-slate-100">
-            <svg className="h-12 w-12 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+            <svg className="h-10 w-10 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
               <rect x="3" y="3" width="18" height="18" rx="2" />
               <path d="m3 9 4-4 4 4 4-6 6 9" />
               <circle cx="8.5" cy="8.5" r="1.5" />
             </svg>
           </div>
         )}
-        <span className="absolute left-3 top-3">
+        <span className="absolute left-2 top-2">
           <AvailabilityBadge status={availability} />
         </span>
         {disabled && (
           <span className="absolute inset-0 flex items-center justify-center bg-white/40">
-            <span className="rounded-full bg-white/95 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-700 shadow">
+            <span className="rounded-full bg-white/95 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-slate-700 shadow">
               {availability === 'SOLD_OUT' ? 'Sold Out' : 'Coming Soon'}
             </span>
           </span>
         )}
       </Link>
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
+      {/* Info */}
+      <div className="flex flex-1 flex-col gap-1.5 p-3 sm:p-4">
         {categoryName && (
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{categoryName}</p>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400 truncate">
+            {categoryName}
+          </p>
         )}
         <Link
           to={`/product/${product._id}`}
-          className="line-clamp-1 text-sm font-semibold text-slate-800 hover:text-brand-700"
+          className="line-clamp-2 text-xs font-semibold leading-tight text-slate-800 hover:text-brand-700 sm:text-sm"
         >
           {product.name}
         </Link>
-        <p className="line-clamp-2 text-sm text-slate-500">
-          {product.shortDescription || 'See product details.'}
-        </p>
-        <div className="mt-auto flex items-center justify-between pt-2">
-          <span className="text-base font-bold text-brand-800">{formatMoney(product.price)}</span>
+        {product.shortDescription && (
+          <p className="line-clamp-1 text-xs text-slate-400 hidden sm:block">
+            {product.shortDescription}
+          </p>
+        )}
+        <div className="mt-auto pt-2 flex flex-col gap-1.5">
+          <span className="text-sm font-bold text-brand-800 sm:text-base">
+            {formatMoney(product.price)}
+          </span>
           <button
             type="button"
-            className="btn-primary min-h-10 px-3 text-sm"
+            className={`w-full rounded-lg py-2 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-50 sm:py-2.5 sm:text-sm ${disabled
+                ? 'bg-slate-100 text-slate-500'
+                : 'bg-brand-800 text-white hover:bg-brand-900'
+              }`}
             disabled={disabled}
             onClick={() => onAdd(product)}
           >
