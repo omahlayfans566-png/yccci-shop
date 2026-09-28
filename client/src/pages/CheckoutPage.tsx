@@ -381,9 +381,6 @@ export function CheckoutPage() {
       </main>
     </div>
   );
-}pan>
-    </div>
-  );
 }
 
 function FieldError({ message }: { message: string }) {
