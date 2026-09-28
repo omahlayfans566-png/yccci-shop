@@ -5,6 +5,7 @@ import categoryRoutes from './categoryRoutes';
 import orderRoutes from './orderRoutes';
 import paymentSettingsRoutes from './paymentSettingsRoutes';
 import adminRoutes from './adminRoutes';
+import paystackRoutes from './paystackRoutes';
 import { isCloudinaryConfigured, testCloudinaryConnection } from '../config/cloudinary';
 import { protect } from '../middleware/auth';
 
@@ -34,5 +35,10 @@ router.use('/categories', categoryRoutes);
 router.use('/orders', orderRoutes);
 router.use('/payment-settings', paymentSettingsRoutes);
 router.use('/admin', adminRoutes);
+
+// Paystack live payment gateway
+// The webhook route inside paystackRoutes uses its own express.json() with
+// a verify callback so raw bytes are available for HMAC signature checking.
+router.use('/paystack', paystackRoutes);
 
 export default router;

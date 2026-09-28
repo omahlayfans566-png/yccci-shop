@@ -16,7 +16,10 @@ function strFromEnv(key: string, fallback = ''): string {
 
 export function validateEnv(): void {
   const required = ['MONGODB_URI', 'JWT_SECRET'];
-  const recommended = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+  const recommended = [
+    'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET',
+    'PAYSTACK_SECRET_KEY',
+  ];
   const missing: string[] = [];
 
   for (const key of required) {
@@ -50,6 +53,8 @@ export const env = {
   cloudinaryCloudName: strFromEnv('CLOUDINARY_CLOUD_NAME'),
   cloudinaryApiKey: strFromEnv('CLOUDINARY_API_KEY'),
   cloudinaryApiSecret: strFromEnv('CLOUDINARY_API_SECRET'),
+  // Paystack — Live payment gateway (NEVER expose secret key to frontend)
+  paystackSecretKey: strFromEnv('PAYSTACK_SECRET_KEY'),
   // Email notifications (Gmail SMTP — port 587 + STARTTLS)
   // Render env vars: EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, ADMIN_EMAIL
   emailHost: strFromEnv('EMAIL_HOST', 'smtp.gmail.com'),

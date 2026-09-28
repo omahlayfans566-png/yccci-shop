@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import path from 'node:path';
+import type { Request } from 'express';
 import apiRoutes from './routes';
 import { notFound, errorHandler } from './middleware/error';
 import { env } from './config/env';
@@ -26,7 +26,22 @@ export function createApp() {
     })
   );
 
-  app.use(express.json({ limit: '2mb' }));
+  /**
+   * Global JSON body parser.
+   * The `verify` callback runs synchronously on every request and captures
+   * the raw Buffer into req.rawBody.  This is what the Paystack webhook
+   * handler uses for HMAC-SHA512 signature verification.
+   *
+   * All other routes are unaffected — req.body works exactly as before.
+   */
+  app.use(
+    express.json({
+      limit: '2mb',
+      verify(req: Request & { rawBody?: Buffer }, _res, buf) {
+        req.rawBody = buf;
+      },
+    })
+  );
   app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
   // Serve local uploads (fallback for dev when Cloudinary is not configured)

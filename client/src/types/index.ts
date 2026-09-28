@@ -86,3 +86,35 @@ export interface SubmitOrderResponse {
   success: boolean;
   order: OrderResult;
 }
+
+// ---------------------------------------------------------------------------
+// Paystack payment types
+// ---------------------------------------------------------------------------
+
+/** Lifecycle status of a Paystack transaction (mirrors the server model). */
+export type PaystackTxStatus = 'pending' | 'processing' | 'success' | 'failed' | 'cancelled';
+
+/** Response from POST /api/paystack/initialize */
+export interface PaystackInitResponse {
+  success: boolean;
+  authorizationUrl: string;
+  accessCode: string;
+  reference: string;
+}
+
+/** Response from GET /api/paystack/verify/:reference */
+export interface PaystackVerifyResponse {
+  success: boolean;
+  status: PaystackTxStatus | string;
+  orderNumber: string;
+  message: string;
+}
+
+/** Response from GET /api/paystack/status/:reference */
+export interface PaystackStatusResponse {
+  success: boolean;
+  status: PaystackTxStatus;
+  orderNumber: string;
+  webhookProcessed: boolean;
+  paidAt: string | null;
+}

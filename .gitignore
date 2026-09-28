@@ -7,9 +7,9 @@ build/
 
 # Environment
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+!.env.*.example
 
 # Uploads (receipts etc.)
 server/uploads/*.jpg

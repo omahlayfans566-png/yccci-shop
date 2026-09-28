@@ -1,5 +1,14 @@
 import { apiRequest, apiUpload } from './client';
-import type { Category, CreateOrderPayload, PaymentSettings, Product, SubmitOrderResponse } from '../types';
+import type {
+  Category,
+  CreateOrderPayload,
+  PaymentSettings,
+  Product,
+  SubmitOrderResponse,
+  PaystackInitResponse,
+  PaystackVerifyResponse,
+  PaystackStatusResponse,
+} from '../types';
 
 export const shopApi = {
   async products(params?: { search?: string; category?: string }): Promise<Product[]> {
@@ -65,7 +74,7 @@ export const shopApi = {
   async ordersLookup(
     orderNumber: string,
     email?: string
-  ): Promise<{ receipt: string; total: number; deliveryMethod?: string } | null> {
+  ): Promise<{ receipt: string; total: number; deliveryMethod?: string; paymentStatus?: string } | null> {
     const query = new URLSearchParams();
     if (email) query.set('email', email);
     const qs = query.toString();
@@ -81,6 +90,43 @@ export const shopApi = {
       receipt: data.order?.payment?.receipt || '',
       total: data.order?.total || 0,
       deliveryMethod: data.order?.deliveryMethod,
+      paymentStatus: data.order?.payment?.status,
     };
+  },
+
+  // -------------------------------------------------------------------------
+  // Paystack payment API
+  // -------------------------------------------------------------------------
+
+  /**
+   * Initialises a Paystack transaction for an existing order.
+   * The backend determines the correct amount — never trust the frontend amount.
+   * Returns the Paystack authorization URL to redirect the customer to.
+   */
+  async paystackInitialize(orderNumber: string, email: string): Promise<PaystackInitResponse> {
+    return apiRequest<PaystackInitResponse>('/api/paystack/initialize', {
+      method: 'POST',
+      body: { orderNumber, email },
+    });
+  },
+
+  /**
+   * Verifies a Paystack transaction reference with the backend.
+   * The backend calls Paystack directly — the frontend never decides success.
+   */
+  async paystackVerify(reference: string): Promise<PaystackVerifyResponse> {
+    return apiRequest<PaystackVerifyResponse>(
+      `/api/paystack/verify/${encodeURIComponent(reference)}`
+    );
+  },
+
+  /**
+   * Lightweight status poll — checks local transaction state without a Paystack API call.
+   * Use after returning from Paystack checkout to check if webhook already activated the order.
+   */
+  async paystackStatus(reference: string): Promise<PaystackStatusResponse> {
+    return apiRequest<PaystackStatusResponse>(
+      `/api/paystack/status/${encodeURIComponent(reference)}`
+    );
   },
 };
