@@ -54,7 +54,7 @@ export const env = {
   cloudinaryApiKey: strFromEnv('CLOUDINARY_API_KEY'),
   cloudinaryApiSecret: strFromEnv('CLOUDINARY_API_SECRET'),
   // Paystack — Live payment gateway (NEVER expose secret key to frontend)
-  paystackSecretKey: strFromEnv('PAYSTACK_SECRET_KEY'),
+  paystackSecretKey: strFromEnv('PAYSTACK_SECRET_KEY', strFromEnv('PAYSTACK_SECRET', strFromEnv('PAYSTACK_KEY'))),
   // Email notifications (Gmail SMTP — port 587 + STARTTLS)
   // Render env vars: EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, ADMIN_EMAIL
   emailHost: strFromEnv('EMAIL_HOST', 'smtp.gmail.com'),
