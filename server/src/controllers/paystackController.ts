@@ -44,13 +44,21 @@ export const initializePayment = asyncHandler(async (req: Request, res: Response
   }
 
   // Only allow initialising payment for orders that haven't been paid yet
-  const alreadyPaid = ['VERIFIED'].includes(order.payment.status);
+  if (!order.payment) {
+    throw new HttpError('Order payment information is missing.', 400);
+  }
+
+  const alreadyPaid = order.payment.status === 'VERIFIED';
   if (alreadyPaid) {
     throw new HttpError('This order has already been paid.', 409);
   }
 
   // Check that the email matches the order to prevent cross-order payment attacks
-  if (order.customer.email && order.customer.email !== cleanEmail) {
+  if (!order.customer || !order.customer.email) {
+    throw new HttpError('Order customer information is missing.', 400);
+  }
+
+  if (order.customer.email.toLowerCase() !== cleanEmail) {
     throw new HttpError('Email does not match the order.', 403);
   }
 
