@@ -98,12 +98,11 @@ export function CheckoutPage() {
   }
 
   // ---------------------------------------------------------------------------
-  // Paystack flow — Step 1: create the order, then redirect to Paystack
-  // The PaystackButton calls this after the form passes validation.
+  // Paystack flow: Validate -> Create Order -> Initialize Paystack -> Redirect
   // ---------------------------------------------------------------------------
   async function handlePaystackCheckout() {
-    if (!validate()) { window.scrollTo({ top: 0, behavior: 'smooth' }); return false; }
-    if (submittedForRef.current) return false;
+    if (!validate()) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    if (submittedForRef.current || submitting) return;
     submittedForRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
@@ -126,36 +125,36 @@ export function CheckoutPage() {
       sessionStorage.setItem('shop_last_email', payload.customer.email);
       // Store the chosen payment method so OrderSuccessPage knows to poll/verify
       sessionStorage.setItem('shop_payment_method', 'paystack');
-      clear();
-      return result.order.orderNumber;
-    } catch (err) {
-      setSubmitError(err instanceof ApiError ? err.message : 'Could not create your order. Please try again.');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      submittedForRef.current = false;
-      setSubmitting(false);
-      return false;
-    }
-  }
 
-  // Called by PaystackButton once the authorization URL is obtained.
-  // At this point the redirect is happening — nothing more to do in this component.
-  function handlePaystackInitialized(reference: string) {
-    // Store reference so OrderSuccessPage / callback page can verify it
-    try {
-      const stored = sessionStorage.getItem(SESSION_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as { order: { orderNumber: string } };
-        sessionStorage.setItem(`paystack_ref_${parsed.order.orderNumber}`, reference);
+      // 2. Initialize Paystack payment directly in the same flow
+      const paystackResult = await shopApi.paystackInitialize(result.order.orderNumber, payload.customer.email);
+      if (!paystackResult.success || !paystackResult.authorizationUrl) {
+        throw new Error('Payment could not be initialized. Please try again.');
       }
-      sessionStorage.setItem('shop_paystack_ref', reference);
-    } catch { /* non-fatal */ }
-  }
 
-  function handlePaystackError(message: string) {
-    setSubmitError(message);
-    setSubmitting(false);
-    submittedForRef.current = false;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+      // 3. Store the reference for OrderSuccessPage verification
+      try {
+        sessionStorage.setItem(`paystack_ref_${result.order.orderNumber}`, paystackResult.reference);
+        sessionStorage.setItem('shop_paystack_ref', paystackResult.reference);
+      } catch { /* non-fatal */ }
+
+      // 4. Clear the cart only once we are ready to leave the page
+      clear();
+
+      // 5. Redirect directly to Paystack's secure checkout page
+      window.location.href = paystackResult.authorizationUrl;
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Could not complete Paystack checkout. Please try again.';
+      setSubmitError(message);
+      setSubmitting(false);
+      submittedForRef.current = false;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   }
 
   if (isEmpty && !submitting) {
@@ -345,14 +344,27 @@ export function CheckoutPage() {
 
             {/* CTA — switches between Paystack and bank-transfer */}
             {paymentMethod === 'paystack' ? (
-              <PaystackCheckoutButton
-                form={form}
-                lines={lines}
-                onPrepare={handlePaystackCheckout}
-                onInitialized={handlePaystackInitialized}
-                onError={handlePaystackError}
+              <button
+                type="button"
+                onClick={handlePaystackCheckout}
                 disabled={submitting}
-              />
+                className="btn-primary flex w-full items-center justify-center gap-2 py-3.5 disabled:opacity-60"
+              >
+                {submitting ? (
+                  <>
+                    <Spinner className="h-5 w-5" />
+                    <span>Connecting to Paystack…</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                    <span>Proceed to Paystack</span>
+                  </>
+                )}
+              </button>
             ) : (
               <button type="submit" disabled={submitting} className="btn-primary flex w-full items-center justify-center gap-2 py-3.5">
                 {submitting ? (
@@ -369,129 +381,7 @@ export function CheckoutPage() {
       </main>
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Internal Paystack checkout button
-// Validates the form, creates the order, then hands off to PaystackButton.
-// ---------------------------------------------------------------------------
-interface PaystackCheckoutButtonProps {
-  form: { email: string; fullName: string };
-  lines: unknown[];
-  onPrepare: () => Promise<string | false>;
-  onInitialized: (ref: string) => void;
-  onError: (msg: string) => void;
-  disabled: boolean;
-}
-
-function PaystackCheckoutButton({
-  form,
-  onPrepare,
-  onInitialized,
-  onError,
-  disabled,
-}: PaystackCheckoutButtonProps) {
-  const [orderNumber, setOrderNumber] = useState<string | null>(null);
-  const [preparing, setPreparing] = useState(false);
-
-  async function handleClick() {
-    if (preparing || disabled) return;
-    setPreparing(true);
-    const result = await onPrepare();
-    if (!result) {
-      setPreparing(false);
-      return;
-    }
-    // Order created — render PaystackButton which will auto-fire on mount
-    setOrderNumber(result);
-  }
-
-  if (orderNumber) {
-    return (
-      // AutoPaystackButton fires handlePay immediately on mount
-      <AutoPaystackButton
-        orderNumber={orderNumber}
-        email={form.email}
-        onInitialized={onInitialized}
-        onError={(msg) => {
-          setOrderNumber(null);
-          setPreparing(false);
-          onError(msg);
-        }}
-      />
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={disabled || preparing}
-      className="btn-primary flex w-full items-center justify-center gap-2 py-3.5 disabled:opacity-60"
-    >
-      {preparing ? (
-        <><Spinner className="h-5 w-5" /> Preparing order…</>
-      ) : (
-        <>
-          <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-          </svg>
-          Proceed to Paystack
-        </>
-      )}
-    </button>
-  );
-}
-
-/**
- * Fires the Paystack payment automatically as soon as the component mounts.
- * Used after the order has been created — no extra click needed.
- */
-function AutoPaystackButton({
-  orderNumber,
-  email,
-  onInitialized,
-  onError,
-}: {
-  orderNumber: string;
-  email: string;
-  onInitialized: (ref: string) => void;
-  onError: (msg: string) => void;
-}) {
-  const firedRef = useRef(false);
-
-  useEffect(() => {
-    if (firedRef.current) return;
-    firedRef.current = true;
-
-    async function fire() {
-      try {
-        const result = await shopApi.paystackInitialize(orderNumber, email);
-        if (!result.success || !result.authorizationUrl) {
-          throw new Error('Payment could not be initialized. Please try again.');
-        }
-        onInitialized(result.reference);
-        try { sessionStorage.setItem(`paystack_ref_${orderNumber}`, result.reference); } catch { /* non-fatal */ }
-        window.location.href = result.authorizationUrl;
-      } catch (err) {
-        const message =
-          err instanceof ApiError
-            ? err.message
-            : err instanceof Error
-              ? err.message
-              : 'Payment could not be completed. Please try again.';
-        onError(message);
-      }
-    }
-
-    void fire();
-  }, [orderNumber, email, onInitialized, onError]);
-
-  return (
-    <div className="btn-primary flex w-full items-center justify-center gap-2 py-3.5 opacity-80">
-      <Spinner className="h-5 w-5" />
-      <span>Redirecting to Paystack…</span>
+}pan>
     </div>
   );
 }
