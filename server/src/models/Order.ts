@@ -52,12 +52,12 @@ const OrderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true, index: true },
     customer: {
-      fullName: { type: String, required: true, trim: true, maxlength: 120 },
-      phone: { type: String, required: true, trim: true, maxlength: 30 },
+      fullName: { type: String, default: '', trim: true, maxlength: 120 },
+      phone: { type: String, default: '', trim: true, maxlength: 30 },
       email: { type: String, required: true, trim: true, lowercase: true, maxlength: 120 },
-      address: { type: String, required: true, trim: true, maxlength: 500 },
-      state: { type: String, required: true, trim: true, maxlength: 80 },
-      city: { type: String, required: true, trim: true, maxlength: 80 },
+      address: { type: String, default: '', trim: true, maxlength: 500 },
+      state: { type: String, default: '', trim: true, maxlength: 80 },
+      city: { type: String, default: '', trim: true, maxlength: 80 },
       note: { type: String, default: '', maxlength: 1000 },
     },
     items: { type: [OrderItemSchema], required: true },

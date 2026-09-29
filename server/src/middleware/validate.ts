@@ -11,21 +11,12 @@ export const validateResult: RequestHandler = (req, _res, next) => {
 };
 
 export const orderRules = [
-  body('customer.fullName')
-    .trim()
-    .isLength({ min: 2, max: 120 })
-    .withMessage('Full name must be between 2 and 120 characters'),
-  body('customer.phone')
-    .trim()
-    .isLength({ min: 6, max: 30 })
-    .withMessage('Valid phone number required'),
+  body('customer.fullName').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
+  body('customer.phone').optional({ values: 'falsy' }).trim().isLength({ max: 30 }),
   body('customer.email').isEmail().withMessage('Valid email required'),
-  body('customer.address')
-    .trim()
-    .isLength({ min: 5, max: 500 })
-    .withMessage('Delivery address required'),
-  body('customer.state').trim().notEmpty().withMessage('State is required'),
-  body('customer.city').trim().notEmpty().withMessage('City is required'),
+  body('customer.address').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
+  body('customer.state').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
+  body('customer.city').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('customer.note').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
   body('items').isArray({ min: 1 }).withMessage('At least one item required'),
   body('items.*.productId').isMongoId().withMessage('Invalid product id'),

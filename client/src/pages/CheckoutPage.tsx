@@ -1,147 +1,91 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useRef, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
-import { PaymentInfo } from '../components/PaymentInfo';
-import { ReceiptUpload } from '../components/ReceiptUpload';
 import { Spinner } from '../components/Spinner';
 import { useCart } from '../context/CartContext';
 import { shopApi } from '../api/shopApi';
 import { ApiError } from '../api/client';
 import { formatMoney, resolveMediaUrl } from '../utils/format';
-import type { PaymentSettings, SubmitOrderResponse } from '../types';
+import type { SubmitOrderResponse } from '../types';
 
 const SESSION_KEY = 'shop_last_order';
 
-type PaymentMethod = 'paystack' | 'bank_transfer';
-
-interface FormState {
-  fullName: string; phone: string; email: string;
-  address: string; state: string; city: string; note: string;
-}
-const EMPTY_FORM: FormState = { fullName: '', phone: '', email: '', address: '', state: '', city: '', note: '' };
-
 export function CheckoutPage() {
   const { lines, subtotal, itemCount, isEmpty, clear } = useCart();
-  const navigate = useNavigate();
 
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState, string>>>({});
-  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
-  const [settingsLoading, setSettingsLoading] = useState(true);
-  const [receipt, setReceipt] = useState<File | null>(null);
-  const [paymentRef, setPaymentRef] = useState('');
+  const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('paystack');
   const submittedForRef = useRef(false);
 
-  useEffect(() => {
-    let active = true;
-    shopApi.paymentSettings()
-      .then((s) => { if (active) setPaymentSettings(s); })
-      .catch(() => { if (active) setPaymentSettings(null); })
-      .finally(() => { if (active) setSettingsLoading(false); });
-    return () => { active = false; };
-  }, []);
-
-  function set<K extends keyof FormState>(key: K, value: string) {
-    setForm((f) => ({ ...f, [key]: value }));
-    setFieldErrors((e) => ({ ...e, [key]: undefined }));
-  }
-
-  function validate(): boolean {
-    const errors: Partial<Record<keyof FormState, string>> = {};
-    if (form.fullName.trim().length < 2) errors.fullName = 'Full name is required';
-    if (!/^[+\d][\d\s-]{5,}$/.test(form.phone.trim())) errors.phone = 'Enter a valid phone number';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = 'Enter a valid email address';
-    if (form.address.trim().length < 5) errors.address = 'Delivery address is required';
-    if (form.state.trim().length < 2) errors.state = 'State is required';
-    if (form.city.trim().length < 2) errors.city = 'City is required';
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Bank transfer submit (existing flow — unchanged)
-  // ---------------------------------------------------------------------------
-  async function handleBankTransferSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!validate()) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-    if (submittedForRef.current) return;
-    submittedForRef.current = true;
-    setSubmitting(true);
-    setSubmitError(null);
-    try {
-      const payload = {
-        customer: {
-          fullName: form.fullName.trim(), phone: form.phone.trim(), email: form.email.trim(),
-          address: form.address.trim(), state: form.state.trim(), city: form.city.trim(), note: form.note.trim(),
-        },
-        items: lines.map((l) => ({
-          productId: l.productId, name: l.name, price: l.price,
-          quantity: l.qty, size: l.size, colour: l.colour,
-        })),
-        paymentRef: paymentRef.trim(),
-      };
-      const result: SubmitOrderResponse = await shopApi.submitOrder(payload, receipt ?? undefined);
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify(result));
-      sessionStorage.setItem('shop_last_email', payload.customer.email);
-      clear();
-      navigate(`/order-success/${result.order.orderNumber}`, { replace: true });
-    } catch (err) {
-      setSubmitError(err instanceof ApiError ? err.message : 'Could not submit your order. Please try again.');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } finally {
-      setSubmitting(false);
-      window.setTimeout(() => { submittedForRef.current = false; }, 0);
+  function validateEmail(): boolean {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setEmailError('Email address is required');
+      return false;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setEmailError('Please enter a valid email address');
+      return false;
+    }
+    setEmailError(null);
+    return true;
   }
 
-  // ---------------------------------------------------------------------------
-  // Paystack flow: Validate -> Create Order -> Initialize Paystack -> Redirect
-  // ---------------------------------------------------------------------------
-  async function handlePaystackCheckout() {
-    if (!validate()) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+  async function handlePaystackCheckout(e: FormEvent) {
+    e.preventDefault();
+    if (!validateEmail()) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     if (submittedForRef.current || submitting) return;
     submittedForRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
 
+    const customerEmail = email.trim().toLowerCase();
+
     try {
-      // 1. Create the order record (payment status will be PENDING)
+      // 1. Create order record (initial payment status is PENDING)
       const payload = {
         customer: {
-          fullName: form.fullName.trim(), phone: form.phone.trim(), email: form.email.trim(),
-          address: form.address.trim(), state: form.state.trim(), city: form.city.trim(), note: form.note.trim(),
+          email: customerEmail,
         },
         items: lines.map((l) => ({
-          productId: l.productId, name: l.name, price: l.price,
-          quantity: l.qty, size: l.size, colour: l.colour,
+          productId: l.productId,
+          name: l.name,
+          price: l.price,
+          quantity: l.qty,
+          size: l.size,
+          colour: l.colour,
         })),
         paymentRef: '',
       };
+
       const result: SubmitOrderResponse = await shopApi.submitOrder(payload);
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(result));
-      sessionStorage.setItem('shop_last_email', payload.customer.email);
-      // Store the chosen payment method so OrderSuccessPage knows to poll/verify
+      sessionStorage.setItem('shop_last_email', customerEmail);
       sessionStorage.setItem('shop_payment_method', 'paystack');
 
-      // 2. Initialize Paystack payment directly in the same flow
-      const paystackResult = await shopApi.paystackInitialize(result.order.orderNumber, payload.customer.email);
+      // 2. Initialize Paystack payment
+      const paystackResult = await shopApi.paystackInitialize(result.order.orderNumber, customerEmail);
       if (!paystackResult.success || !paystackResult.authorizationUrl) {
         throw new Error('Payment could not be initialized. Please try again.');
       }
 
-      // 3. Store the reference for OrderSuccessPage verification
+      // 3. Store reference for verification upon return
       try {
         sessionStorage.setItem(`paystack_ref_${result.order.orderNumber}`, paystackResult.reference);
         sessionStorage.setItem('shop_paystack_ref', paystackResult.reference);
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
 
-      // 4. Clear the cart only once we are ready to leave the page
+      // 4. Clear the cart
       clear();
 
-      // 5. Redirect directly to Paystack's secure checkout page
+      // 5. Redirect directly to Paystack's secure payment gateway
       window.location.href = paystackResult.authorizationUrl;
     } catch (err) {
       const message =
@@ -159,230 +103,188 @@ export function CheckoutPage() {
 
   if (isEmpty && !submitting) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-screen bg-slate-50">
         <Navbar />
         <main className="mx-auto max-w-xl px-4 py-16 sm:px-6">
           <div className="card flex flex-col items-center gap-4 p-12 text-center">
             <p className="text-5xl">🧾</p>
             <h1 className="text-xl font-bold text-slate-800">Your cart is empty</h1>
             <p className="text-sm text-slate-500">Add products before checking out.</p>
-            <Link to="/" className="btn-primary px-6 py-2.5">Browse Products</Link>
+            <Link to="/" className="btn-primary px-6 py-2.5">
+              Browse Products
+            </Link>
           </div>
         </main>
       </div>
     );
   }
 
-  // Wrapper submit: route to the right handler depending on selected method
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (paymentMethod === 'bank_transfer') {
-      await handleBankTransferSubmit(e);
-    }
-    // Paystack path is handled by PaystackCheckoutButton click, not form submit
-  }
-
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-slate-50">
       <Navbar />
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-        <h1 className="mb-5 text-2xl font-extrabold text-slate-900">Checkout</h1>
+      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+        <div className="mb-6">
+          <h1 className="text-2xl font-extrabold text-slate-900">Checkout</h1>
+          <p className="text-sm text-slate-500">Complete your payment securely with Paystack.</p>
+        </div>
 
         {submitError && (
-          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
             {submitError}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} noValidate className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <form onSubmit={handlePaystackCheckout} noValidate className="grid gap-6 lg:grid-cols-[1fr_380px]">
           <div className="space-y-6">
-            {/* Delivery details */}
-            <section className="card p-5">
-              <h2 className="text-base font-bold text-slate-800">Delivery Details</h2>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <label htmlFor="fullName" className="label">Full Name *</label>
-                  <input id="fullName" type="text" autoComplete="name" className="input" value={form.fullName} onChange={(e) => set('fullName', e.target.value)} />
-                  {fieldErrors.fullName && <FieldError message={fieldErrors.fullName} />}
-                </div>
-                <div>
-                  <label htmlFor="phone" className="label">Phone Number *</label>
-                  <input id="phone" type="tel" autoComplete="tel" className="input" placeholder="e.g. 08012345678" value={form.phone} onChange={(e) => set('phone', e.target.value)} />
-                  {fieldErrors.phone && <FieldError message={fieldErrors.phone} />}
-                </div>
-                <div>
-                  <label htmlFor="email" className="label">Email *</label>
-                  <input id="email" type="email" autoComplete="email" className="input" value={form.email} onChange={(e) => set('email', e.target.value)} />
-                  {fieldErrors.email && <FieldError message={fieldErrors.email} />}
-                </div>
-                <div className="sm:col-span-2">
-                  <label htmlFor="address" className="label">Delivery Address *</label>
-                  <textarea id="address" rows={2} className="input" value={form.address} onChange={(e) => set('address', e.target.value)} />
-                  {fieldErrors.address && <FieldError message={fieldErrors.address} />}
-                </div>
-                <div>
-                  <label htmlFor="state" className="label">State *</label>
-                  <input id="state" type="text" className="input" value={form.state} onChange={(e) => set('state', e.target.value)} />
-                  {fieldErrors.state && <FieldError message={fieldErrors.state} />}
-                </div>
-                <div>
-                  <label htmlFor="city" className="label">City *</label>
-                  <input id="city" type="text" className="input" value={form.city} onChange={(e) => set('city', e.target.value)} />
-                  {fieldErrors.city && <FieldError message={fieldErrors.city} />}
-                </div>
-                <div className="sm:col-span-2">
-                  <label htmlFor="note" className="label">Additional Note (optional)</label>
-                  <textarea id="note" rows={2} className="input" value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="Landmark, delivery time preference, etc." />
-                </div>
+            {/* Customer Contact Information */}
+            <section className="card p-6 bg-white shadow-sm border border-slate-200">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-800">
+                  1
+                </span>
+                <h2 className="text-base font-bold text-slate-800">Contact Information</h2>
+              </div>
+
+              <div>
+                <label htmlFor="customerEmail" className="label text-sm font-semibold text-slate-700">
+                  Email Address <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="customerEmail"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  placeholder="your.email@example.com"
+                  className={`input w-full mt-1 ${emailError ? 'border-red-400 focus:border-red-500 focus:ring-red-200' : ''}`}
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (emailError) setEmailError(null);
+                  }}
+                />
+                {emailError && <p className="mt-1 text-xs font-medium text-red-600">{emailError}</p>}
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Required for payment receipt and order confirmation.
+                </p>
               </div>
             </section>
 
-            {/* Payment method selector */}
-            <section className="card p-5">
-              <h2 className="text-base font-bold text-slate-800">Payment Method</h2>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label
-                  className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-4 transition-colors ${paymentMethod === 'paystack'
-                    ? 'border-brand-500 bg-brand-50'
-                    : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                >
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value="paystack"
-                    checked={paymentMethod === 'paystack'}
-                    onChange={() => setPaymentMethod('paystack')}
-                    className="accent-brand-600"
-                  />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">Pay with Card / Bank</p>
-                    <p className="text-xs text-slate-500">Secured by Paystack — card, bank transfer, USSD</p>
-                  </div>
-                </label>
-
-                <label
-                  className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-4 transition-colors ${paymentMethod === 'bank_transfer'
-                    ? 'border-brand-500 bg-brand-50'
-                    : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                >
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value="bank_transfer"
-                    checked={paymentMethod === 'bank_transfer'}
-                    onChange={() => setPaymentMethod('bank_transfer')}
-                    className="accent-brand-600"
-                  />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">Manual Bank Transfer</p>
-                    <p className="text-xs text-slate-500">Transfer to our account &amp; upload receipt</p>
-                  </div>
-                </label>
+            {/* Payment Method - Paystack Only */}
+            <section className="card overflow-hidden bg-white shadow-sm border border-slate-200">
+              <div className="flex items-center gap-2 p-6 border-b border-slate-100">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-800">
+                  2
+                </span>
+                <h2 className="text-base font-bold text-slate-800">Payment Method</h2>
               </div>
-            </section>
 
-            {/* Payment method details */}
-            {paymentMethod === 'paystack' ? (
-              <div className="card overflow-hidden">
-                <div className="border-b border-slate-200 bg-brand-50 px-5 py-4">
-                  <h3 className="text-base font-bold text-brand-900">Pay Securely with Paystack</h3>
-                  <p className="mt-0.5 text-sm text-slate-600">
-                    You'll be redirected to Paystack's secure checkout. Supports card, bank transfer, USSD and more.
-                  </p>
+              <div className="p-6 space-y-4">
+                {/* Paystack active card */}
+                <div className="rounded-xl border-2 border-brand-500 bg-brand-50/50 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-brand-600 bg-brand-600">
+                        <span className="h-2 w-2 rounded-full bg-white" />
+                      </span>
+                      <div>
+                        <p className="font-bold text-slate-900">Paystack</p>
+                        <p className="text-xs text-slate-600">Debit / Credit Card, Bank Transfer, USSD, Apple Pay</p>
+                      </div>
+                    </div>
+                    <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                      Instant &amp; Secure
+                    </span>
+                  </div>
                 </div>
-                <div className="px-5 py-4 space-y-3">
-                  <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-xs text-emerald-800">
-                    <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+
+                {/* Security badges */}
+                <div className="rounded-lg bg-slate-50 p-3.5 space-y-2 border border-slate-200/60">
+                  <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium">
+                    <svg className="h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <path d="m5 13 4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                    Payment is verified automatically — no receipt upload needed.
+                    Automatic server-side payment confirmation
                   </div>
-                  <div className="flex items-start gap-2 text-xs text-slate-500">
-                    <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                      <rect x="3" y="11" width="18" height="11" rx="2" />
+                  <div className="flex items-center gap-2 text-xs text-slate-600">
+                    <svg className="h-4 w-4 shrink-0 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                     </svg>
-                    Your payment is protected by 256-bit SSL encryption.
+                    End-to-end 256-bit SSL encrypted &amp; PCI-DSS compliant
                   </div>
                 </div>
               </div>
-            ) : (
-              <>
-                <PaymentInfo settings={paymentSettings} loading={settingsLoading} />
-                <ReceiptUpload file={receipt} onFileChange={setReceipt} paymentRef={paymentRef} onPaymentRefChange={setPaymentRef} />
-              </>
-            )}
+            </section>
           </div>
 
-          {/* Order summary sidebar */}
+          {/* Order Summary Sidebar */}
           <aside className="h-fit space-y-4 lg:sticky lg:top-20">
-            <div className="card p-5">
+            <div className="card p-6 bg-white shadow-sm border border-slate-200">
               <h2 className="text-base font-bold text-slate-800">Order Summary</h2>
-              <ul className="mt-3 divide-y divide-slate-100">
+
+              <ul className="mt-4 divide-y divide-slate-100 max-h-72 overflow-y-auto pr-1">
                 {lines.map((line) => (
                   <li key={line.key} className="flex gap-3 py-3">
-                    <img src={resolveMediaUrl(line.image)} alt="" loading="lazy" className="h-14 w-14 shrink-0 rounded-md border border-slate-200 object-cover" />
+                    <img
+                      src={resolveMediaUrl(line.image)}
+                      alt=""
+                      loading="lazy"
+                      className="h-14 w-14 shrink-0 rounded-md border border-slate-200 object-cover"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-slate-800">{line.name}</p>
                       <p className="text-xs text-slate-500">
-                        {[line.qty, line.size && `Size ${line.size}`, line.colour].filter(Boolean).join(' · ')}
+                        {[line.qty > 1 && `Qty: ${line.qty}`, line.size && `Size: ${line.size}`, line.colour && `Colour: ${line.colour}`]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </p>
                       <p className="mt-0.5 text-sm font-semibold text-brand-800">{formatMoney(line.price * line.qty)}</p>
                     </div>
                   </li>
                 ))}
               </ul>
-              <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-                <span className="text-sm font-medium text-slate-600">
-                  Subtotal ({itemCount} item{itemCount === 1 ? '' : 's'})
-                </span>
-                <span className="text-lg font-bold text-brand-800">{formatMoney(subtotal)}</span>
+
+              <div className="mt-4 border-t border-slate-200 pt-4 space-y-2">
+                <div className="flex items-center justify-between text-sm text-slate-600">
+                  <span>Total Items</span>
+                  <span className="font-semibold">{itemCount}</span>
+                </div>
+                <div className="flex items-center justify-between text-base font-bold text-slate-900 pt-2 border-t border-slate-100">
+                  <span>Total Due</span>
+                  <span className="text-xl text-brand-800">{formatMoney(subtotal)}</span>
+                </div>
               </div>
+
+              <div className="mt-6">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="btn-primary flex w-full items-center justify-center gap-2 py-3.5 text-base font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-60"
+                >
+                  {submitting ? (
+                    <>
+                      <Spinner className="h-5 w-5" />
+                      <span>Connecting to Paystack…</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                      <span>Pay with Paystack</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <p className="mt-3 text-center text-xs text-slate-500">
+                You will be securely redirected to Paystack to complete your payment.
+              </p>
             </div>
-
-            {/* CTA — switches between Paystack and bank-transfer */}
-            {paymentMethod === 'paystack' ? (
-              <button
-                type="button"
-                onClick={handlePaystackCheckout}
-                disabled={submitting}
-                className="btn-primary flex w-full items-center justify-center gap-2 py-3.5 disabled:opacity-60"
-              >
-                {submitting ? (
-                  <>
-                    <Spinner className="h-5 w-5" />
-                    <span>Connecting to Paystack…</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                    <span>Proceed to Paystack</span>
-                  </>
-                )}
-              </button>
-            ) : (
-              <button type="submit" disabled={submitting} className="btn-primary flex w-full items-center justify-center gap-2 py-3.5">
-                {submitting ? (
-                  <><Spinner className="h-5 w-5" /> Submitting Order…</>
-                ) : 'Place Order'}
-              </button>
-            )}
-
-            <p className="text-center text-xs text-slate-500">
-              By placing this order you agree to our terms and delivery policy.
-            </p>
           </aside>
         </form>
       </main>
     </div>
   );
-}
-
-function FieldError({ message }: { message: string }) {
-  return <p className="mt-1 text-xs font-medium text-red-600">{message}</p>;
 }

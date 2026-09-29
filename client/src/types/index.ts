@@ -57,12 +57,12 @@ export interface CartLine {
 
 export interface CreateOrderPayload {
   customer: {
-    fullName: string;
-    phone: string;
     email: string;
-    address: string;
-    state: string;
-    city: string;
+    fullName?: string;
+    phone?: string;
+    address?: string;
+    state?: string;
+    city?: string;
     note?: string;
   };
   items: Array<{
