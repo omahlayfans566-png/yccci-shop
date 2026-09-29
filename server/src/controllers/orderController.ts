@@ -16,6 +16,7 @@ import {
   sendAdminReplyEmail,
   isEmailConfigured,
 } from '../utils/email';
+import { deductOrderInventory, restoreOrderInventory } from '../utils/inventory';
 import { env } from '../config/env';
 
 export function parseOrderBody(req: Request, _res: Response, next: NextFunction): void {
@@ -146,17 +147,6 @@ export const createOrder = asyncHandler(async (req, res) => {
       await Order.updateOne({ _id: order._id }, { 'payment.receipt': `/uploads/receipts/${filename}` });
     } catch (err) {
       console.error('[order] local receipt save failed:', err instanceof Error ? err.message : err);
-    }
-  }
-
-  for (const { product, qty } of enriched) {
-    const stock = product.stock as number;
-    if (stock > 0) {
-      await Product.updateOne({ _id: product._id }, { $inc: { stock: -qty } });
-      const updated = await Product.findById(product._id).lean() as Record<string, unknown> | null;
-      if (updated && (updated.stock as number) <= 0 && updated.status === 'AVAILABLE') {
-        await Product.updateOne({ _id: product._id }, { status: 'SOLD_OUT' });
-      }
     }
   }
 
@@ -343,7 +333,21 @@ export const adminUpdateOrder = asyncHandler(async (req, res) => {
 
   const order = await Order.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true }).lean();
   if (!order) throw new HttpError('Order not found', 404);
-  res.json({ success: true, order });
+
+  // If payment is verified by admin (e.g. for bank transfer proof), deduct inventory atomically
+  if (paymentStatus === 'VERIFIED') {
+    await deductOrderInventory(req.params.id);
+  } else if (
+    paymentStatus === 'REJECTED' ||
+    paymentStatus === 'REFUNDED' ||
+    orderStatus === 'CANCELLED'
+  ) {
+    // If an order is rejected/refunded/cancelled, restore any previously deducted inventory
+    await restoreOrderInventory(req.params.id);
+  }
+
+  const updatedOrder = await Order.findById(req.params.id).lean();
+  res.json({ success: true, order: updatedOrder || order });
 });
 
 /* ── Admin: reply to customer ────────────────────────────── */

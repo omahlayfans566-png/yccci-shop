@@ -9,6 +9,7 @@ import {
   generatePaystackReference,
   type PaystackWebhookEvent,
 } from '../config/paystack';
+import { deductOrderInventory } from '../utils/inventory';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -431,5 +432,14 @@ async function activateOrder(orderId: string, orderNumber: string, paystackRefer
     console.info('[paystack] activateOrder: order already verified, skipping', orderNumber);
   } else {
     console.info('[paystack] activateOrder: order', orderNumber, 'payment verified');
+  }
+
+  // Atomically deduct inventory for this order upon confirmed payment.
+  // deductOrderInventory is fully idempotent and will ONLY deduct stock once across multiple calls.
+  const invResult = await deductOrderInventory(orderId);
+  if (!invResult.success) {
+    console.warn(`[paystack] activateOrder: stock deduction had unavailable items for order ${orderNumber}`);
+  } else if (!invResult.alreadyDeducted) {
+    console.info(`[paystack] activateOrder: stock deducted successfully for order ${orderNumber}`);
   }
 }

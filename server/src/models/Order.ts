@@ -96,6 +96,8 @@ const OrderSchema = new Schema(
       default: 'PENDING',
     },
     adminNotes: { type: String, default: '' },
+    /** Tracks whether product stock has been deducted for this order (only upon confirmed payment) */
+    inventoryDeducted: { type: Boolean, default: false, index: true },
     /** Customer-submitted delivery method after order is placed */
     deliveryMethod: { type: String, default: '' },
     deliveryMessage: { type: String, default: '', maxlength: 2000 },
