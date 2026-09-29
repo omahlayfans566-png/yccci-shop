@@ -31,15 +31,14 @@ export const initializePayment = asyncHandler(async (req: Request, res: Response
   if (!orderNumber || typeof orderNumber !== 'string' || !orderNumber.trim()) {
     throw new HttpError('Order number is required.', 400);
   }
-  if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+  if (email && (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) {
     throw new HttpError('A valid email address is required.', 400);
   }
 
   const cleanOrderNumber = orderNumber.trim();
-  const cleanEmail = email.trim().toLowerCase();
 
   // Load the order — we determine the amount from the database, not from the request
-  const order = await Order.findOne({ orderNumber: cleanOrderNumber }).lean();
+  const order = await Order.findOne({ orderNumber: cleanOrderNumber });
   if (!order) {
     throw new HttpError('Order not found.', 404);
   }
@@ -54,13 +53,29 @@ export const initializePayment = asyncHandler(async (req: Request, res: Response
     throw new HttpError('This order has already been paid.', 409);
   }
 
-  // Check that the email matches the order to prevent cross-order payment attacks
-  if (!order.customer || !order.customer.email) {
-    throw new HttpError('Order customer information is missing.', 400);
-  }
-
-  if (order.customer.email.toLowerCase() !== cleanEmail) {
-    throw new HttpError('Email does not match the order.', 403);
+  // Determine transaction email for Paystack:
+  // 1. If order already has an email, use it.
+  // 2. If email was passed in request body, use it.
+  // 3. Fallback: use an order-associated transaction email for guest checkout.
+  let cleanEmail = '';
+  if (order.customer?.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(order.customer.email.trim())) {
+    cleanEmail = order.customer.email.trim().toLowerCase();
+  } else if (email && typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    cleanEmail = email.trim().toLowerCase();
+    if (!order.customer) {
+      order.customer = { fullName: '', phone: '', email: cleanEmail, address: '', state: '', city: '', note: '' };
+    } else {
+      order.customer.email = cleanEmail;
+    }
+    await order.save();
+  } else {
+    cleanEmail = `order-${cleanOrderNumber.toLowerCase().replace(/[^a-z0-9_-]/g, '')}@ycccishop.com`;
+    if (!order.customer) {
+      order.customer = { fullName: '', phone: '', email: cleanEmail, address: '', state: '', city: '', note: '' };
+    } else {
+      order.customer.email = cleanEmail;
+    }
+    await order.save();
   }
 
   // Server-side amount — always from the database

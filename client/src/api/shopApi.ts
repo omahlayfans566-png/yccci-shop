@@ -103,10 +103,10 @@ export const shopApi = {
    * The backend determines the correct amount — never trust the frontend amount.
    * Returns the Paystack authorization URL to redirect the customer to.
    */
-  async paystackInitialize(orderNumber: string, email: string): Promise<PaystackInitResponse> {
+  async paystackInitialize(orderNumber: string, email?: string): Promise<PaystackInitResponse> {
     return apiRequest<PaystackInitResponse>('/api/paystack/initialize', {
       method: 'POST',
-      body: { orderNumber, email },
+      body: { orderNumber, email: email || undefined },
     });
   },
 

@@ -54,7 +54,7 @@ const OrderSchema = new Schema(
     customer: {
       fullName: { type: String, default: '', trim: true, maxlength: 120 },
       phone: { type: String, default: '', trim: true, maxlength: 30 },
-      email: { type: String, required: true, trim: true, lowercase: true, maxlength: 120 },
+      email: { type: String, default: '', trim: true, lowercase: true, maxlength: 120 },
       address: { type: String, default: '', trim: true, maxlength: 500 },
       state: { type: String, default: '', trim: true, maxlength: 80 },
       city: { type: String, default: '', trim: true, maxlength: 80 },

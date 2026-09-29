@@ -56,8 +56,8 @@ export interface CartLine {
 }
 
 export interface CreateOrderPayload {
-  customer: {
-    email: string;
+  customer?: {
+    email?: string;
     fullName?: string;
     phone?: string;
     address?: string;

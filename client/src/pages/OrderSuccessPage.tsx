@@ -36,16 +36,8 @@ export function OrderSuccessPage() {
       /* ignore */
     }
 
-    const email = (() => {
-      try {
-        return sessionStorage.getItem('shop_last_email') || undefined;
-      } catch {
-        return undefined;
-      }
-    })();
-
     shopApi
-      .ordersLookup(orderNumber, email)
+      .ordersLookup(orderNumber)
       .then((data) => {
         setOrderData(data);
         if (data?.paymentStatus === 'VERIFIED') {
@@ -135,15 +127,8 @@ export function OrderSuccessPage() {
   }
 
   function refreshOrder() {
-    const email = (() => {
-      try {
-        return sessionStorage.getItem('shop_last_email') || undefined;
-      } catch {
-        return undefined;
-      }
-    })();
     shopApi
-      .ordersLookup(orderNumber, email)
+      .ordersLookup(orderNumber)
       .then(setOrderData)
       .catch(() => {});
   }
@@ -163,22 +148,8 @@ export function OrderSuccessPage() {
     setRetrying(true);
     setRetryError(null);
 
-    const email = (() => {
-      try {
-        return sessionStorage.getItem('shop_last_email') || '';
-      } catch {
-        return '';
-      }
-    })();
-
-    if (!email) {
-      setRetryError('Could not determine your email. Please return to checkout to place your order.');
-      setRetrying(false);
-      return;
-    }
-
     try {
-      const init = await shopApi.paystackInitialize(orderNumber, email);
+      const init = await shopApi.paystackInitialize(orderNumber);
       if (!init.success || !init.authorizationUrl) {
         throw new Error('Payment could not be initialized. Please try again.');
       }
@@ -334,7 +305,7 @@ export function OrderSuccessPage() {
                   </div>
                 </div>
 
-                {/* Delivery / Waybill Notice & Contact Section */}
+                {/* Delivery & Waybill Notice & Contact Section */}
                 <div className="rounded-2xl border-2 border-brand-200 bg-gradient-to-br from-brand-50/80 to-amber-50/50 p-6 sm:p-7 shadow-sm">
                   <div className="flex items-start gap-3.5">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-800 text-white shadow-sm">

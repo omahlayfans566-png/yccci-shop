@@ -11,9 +11,10 @@ export const validateResult: RequestHandler = (req, _res, next) => {
 };
 
 export const orderRules = [
+  body('customer').optional({ values: 'falsy' }),
   body('customer.fullName').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('customer.phone').optional({ values: 'falsy' }).trim().isLength({ max: 30 }),
-  body('customer.email').isEmail().withMessage('Valid email required'),
+  body('customer.email').optional({ values: 'falsy' }).isEmail().withMessage('Valid email required'),
   body('customer.address').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
   body('customer.state').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('customer.city').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
