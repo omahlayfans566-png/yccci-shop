@@ -84,7 +84,11 @@ export const ProductCard = memo(function ProductCard({ product, onAdd }: Props) 
             disabled={disabled}
             onClick={() => onAdd(product)}
           >
-            {disabled ? 'Unavailable' : 'Add to Cart'}
+            {disabled
+              ? availability === 'SOLD_OUT'
+                ? 'Sold Out'
+                : 'Coming Soon'
+              : 'Add to Cart'}
           </button>
         </div>
       </div>

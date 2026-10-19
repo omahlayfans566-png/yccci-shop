@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { CartLine, Product, ProductStatus } from '../types';
+import { availabilityOf } from '../components/AvailabilityBadge';
 
 // ---------------------------------------------------------------------------
 // Cart persistence — localStorage key
@@ -31,10 +32,11 @@ function reducer(state: CartState, action: CartAction): CartState {
     case 'ADD': {
       const existing = state.lines.find((l) => l.key === action.line.key);
       if (existing) {
+        const availableStock = existing.stock > 0 ? existing.stock : 99;
         return {
           lines: state.lines.map((l) =>
             l.key === action.line.key
-              ? { ...l, qty: Math.min(l.qty + action.line.qty, Math.max(l.stock, l.qty + action.line.qty) || 99) }
+              ? { ...l, qty: Math.min(l.qty + action.line.qty, availableStock) }
               : l
           ),
         };
@@ -81,9 +83,9 @@ function loadInitialState(): CartState {
     if (!raw) return { lines: [] };
     const parsed = JSON.parse(raw) as { lines: CartLine[] };
     if (!Array.isArray(parsed?.lines)) return { lines: [] };
-    // Drop lines for products that became unavailable in the meantime.
+    // Drop lines for products that became unavailable or out of stock in the meantime.
     return {
-      lines: parsed.lines.filter((l) => l.status === 'AVAILABLE'),
+      lines: parsed.lines.filter((l) => l.status === 'AVAILABLE' && (Number(l.stock) || 0) > 0),
     };
   } catch {
     return { lines: [] };
@@ -112,6 +114,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // Persist on every change; robust against refresh.
   useEffect(() => {
     try {
+      window.localStorage.getItem(STORAGE_KEY);
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       // Storage full or blocked — the cart still works for the session.
@@ -126,7 +129,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const addItem = useCallback(
     (product: Product, opts?: { size?: string; colour?: string; qty?: number }) => {
       const { size, colour, qty = 1 } = opts || {};
-      if (product.status !== 'AVAILABLE') return;
+      const availability = availabilityOf(product.status, product.stock);
+      if (availability !== 'AVAILABLE' || product.stock <= 0) return;
       const key = buildCartKey(product._id, size, colour);
       const line: CartLine = {
         key,
@@ -135,10 +139,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
         price: product.price,
         image: product.mainImage,
         stock: product.stock,
-        status: product.status as ProductStatus,
+        status: availability as ProductStatus,
         size,
         colour,
-        qty,
+        qty: Math.min(Math.max(1, qty), product.stock),
       };
       dispatch({ type: 'ADD', line });
     },

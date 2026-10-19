@@ -63,12 +63,18 @@ export const createOrder = asyncHandler(async (req, res) => {
     const qty = Number(raw.quantity);
     if (!Number.isInteger(qty) || qty < 1 || qty > 99) throw new HttpError(`Invalid quantity for "${product.name}".`, 400);
 
-    const stock = product.stock as number;
-    const status = product.status as string;
+    const stock = typeof product.stock === 'number' ? product.stock : Number(product.stock) || 0;
+    const status = String(product.status || 'AVAILABLE');
     const effectiveStatus = stock > 0 ? status : status === 'AVAILABLE' ? 'SOLD_OUT' : status;
     if (effectiveStatus === 'SOLD_OUT') throw new HttpError(`"${product.name}" is sold out.`, 409);
     if (effectiveStatus === 'COMING_SOON') throw new HttpError(`"${product.name}" is coming soon.`, 409);
-    if (stock > 0 && stock < qty) throw new HttpError(`Only ${stock} of "${product.name}" available.`, 409);
+
+    // Aggregate total requested quantity across all cart items for this product (handles variations)
+    const totalRequested = itemsRaw
+      .filter((it: any) => String(it?.productId) === String(product._id))
+      .reduce((sum: number, it: any) => sum + (Number(it?.quantity) || 0), 0);
+
+    if (stock > 0 && stock < totalRequested) throw new HttpError(`Only ${stock} of "${product.name}" available.`, 409);
 
     const size = String(raw.size ?? '').trim();
     const sizes = product.sizes as string[];

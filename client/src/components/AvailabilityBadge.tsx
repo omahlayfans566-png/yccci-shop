@@ -18,6 +18,8 @@ export function AvailabilityBadge({ status }: { status: Availability }) {
 }
 
 export function availabilityOf(status: Availability, stock: number): Availability {
-  if (status === 'AVAILABLE' && stock > 0) return 'AVAILABLE';
-  return status;
+  const qty = Number(stock) || 0;
+  if (status === 'COMING_SOON') return 'COMING_SOON';
+  if (status === 'SOLD_OUT' || qty <= 0) return 'SOLD_OUT';
+  return 'AVAILABLE';
 }

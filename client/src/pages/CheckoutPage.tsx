@@ -23,6 +23,16 @@ export function CheckoutPage() {
     setSubmitError(null);
 
     try {
+      // Pre-check for any sold-out items in cart
+      const outOfStockLine = lines.find((l) => (Number(l.stock) || 0) <= 0 || l.status !== 'AVAILABLE');
+      if (outOfStockLine) {
+        setSubmitError(`"${outOfStockLine.name}" is sold out. Please remove it from your cart before checking out.`);
+        setSubmitting(false);
+        submittedForRef.current = false;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
       // 1. Create order record with cart items
       const payload = {
         items: lines.map((l) => ({
@@ -122,7 +132,14 @@ export function CheckoutPage() {
                       className="h-16 w-16 shrink-0 rounded-lg border border-slate-200 object-cover"
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-sm text-slate-800">{line.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm text-slate-800">{line.name}</p>
+                        {((Number(line.stock) || 0) <= 0 || line.status !== 'AVAILABLE') && (
+                          <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-700">
+                            Sold Out
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500 mt-0.5">
                         {[line.qty > 1 && `Qty: ${line.qty}`, line.size && `Size: ${line.size}`, line.colour && `Colour: ${line.colour}`]
                           .filter(Boolean)

@@ -13,7 +13,7 @@ interface FormState {
 }
 const EMPTY: FormState = {
     name: '', shortDescription: '', description: '',
-    price: '', stock: '0', category: '', status: 'AVAILABLE', sortOrder: '0',
+    price: '', stock: '10', category: '', status: 'AVAILABLE', sortOrder: '0',
 };
 
 export function ProductFormPage() {
@@ -377,7 +377,7 @@ export function ProductFormPage() {
                             <label className="label">Stock Quantity</label>
                             <input type="number" min="0" className="input" value={form.stock}
                                 onChange={(e) => set('stock', e.target.value)} />
-                            <p className="mt-1 text-xs text-slate-400">Set 0 if stock tracking is not needed.</p>
+                            <p className="mt-1 text-xs text-slate-400">Number of units in stock. Setting 0 marks product as Sold Out.</p>
                         </div>
                     </section>
 

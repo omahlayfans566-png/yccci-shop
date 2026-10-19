@@ -56,16 +56,20 @@ export function ProductDetailsPage() {
   const disabled = availability !== 'AVAILABLE';
   const hasSizes = (product?.sizes.length ?? 0) > 0;
   const hasColours = (product?.colours.length ?? 0) > 0;
-  const maxQty = product && product.stock > 0 ? product.stock : 99;
+  const maxQty = product && product.stock > 0 ? product.stock : 1;
 
   function handleAddToCart() {
-    if (!product || disabled) return;
+    if (!product || disabled || product.stock <= 0) return;
     if (hasSizes && !size) {
       showToast('Please select a size');
       return;
     }
     if (hasColours && !colour) {
       showToast('Please select a colour');
+      return;
+    }
+    if (qty > product.stock) {
+      showToast(`Only ${product.stock} available in stock`);
       return;
     }
     addItem(product, { size: hasSizes ? size : undefined, colour: hasColours ? colour : undefined, qty });
